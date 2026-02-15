@@ -1,0 +1,90 @@
+% customsections.sty
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{customsections}[2025/10/14 Custom section and subsection formatting]
+
+\RequirePackage{xcolor}
+
+% --- Colors and fonts ---
+\definecolor{secbar}{HTML}{2A74B9}
+\definecolor{subbar}{HTML}{4FA3E0}
+\definecolor{sectxt}{HTML}{1C4E8C}
+\definecolor{subtxt}{HTML}{3A6FA5}
+
+\def\sectionfont{\sffamily\LARGE}
+\def\subsectionfont{\sffamily\Large}
+\setcounter{secnumdepth}{2}
+
+\makeatletter
+
+\def\@sectionstrut{\vrule\@width\z@\@height12.5\p@}
+
+% ---------- Section ----------
+\def\@makesectionhead#1{%
+  {\par\vspace{20pt}%
+   \parindent 0pt\raggedleft\sectionfont
+   \colorbox{secbar}{%
+     \parbox[t]{70pt}{\color{white}\@sectionstrut\@depth4.5\p@\hfill
+       \ifnum\c@secnumdepth>\z@\thesection\fi}%
+   }%
+   \begin{minipage}[t]{\dimexpr\textwidth-90pt-2\fboxsep\relax}
+     \color{sectxt}\@sectionstrut\hspace{5pt}#1
+   \end{minipage}\par
+   \vspace{10pt}%
+  }
+}
+\def\@makesectionheadstar#1{%
+  {\par\vspace{20pt}%
+   \parindent 0pt\raggedleft\sectionfont
+   \color{secbar}\rule{5pt}{20pt}\hspace{8pt}%
+   \begin{minipage}[t]{\dimexpr\textwidth-20pt\relax}
+     \color{sectxt}#1
+   \end{minipage}\par
+   \vspace{10pt}%
+  }
+}
+\def\section{\@afterindentfalse\secdef\@section\@ssection}
+\def\@section[#1]#2{%
+  \refstepcounter{section}%
+  \addcontentsline{toc}{section}{\protect\numberline{\thesection}#1}%
+  \sectionmark{#1}%
+  \@makesectionhead{#2}\@afterheading
+}
+\def\@ssection#1{\@makesectionheadstar{#1}\@afterheading}
+
+% ---------- Subsection ----------
+\def\@maksubsectionhead#1{%
+  {\par\vspace{10pt}%
+   \parindent 0pt\raggedleft\subsectionfont
+   \hspace*{1.5em}%
+   \colorbox{subbar}{%
+     \parbox[t]{70pt}{\color{white}\@sectionstrut\@depth4.5\p@\hfill
+       \ifnum\c@secnumdepth>\z@\thesubsection\fi}%
+   }%
+   \begin{minipage}[t]{\dimexpr\textwidth-90pt-2\fboxsep\relax}
+     \color{subtxt}\@sectionstrut\hspace{5pt}#1
+   \end{minipage}\par
+   \vspace{5pt}%
+  }
+}
+\def\@maksubsectionheadstar#1{%
+  {\par%
+  \subsectionfont
+  \noindent
+  \color{subbar}%
+  \rule{4pt}{1.0em}%  % 4pt wide, matches text height (adjust as needed)
+  \hspace{0.6em}%     % small space between bar and text
+  \color{subtxt}%
+  \raisebox{0pt}[1.2em][0pt]{#1}\par%
+}
+}
+\def\subsection{\@afterindentfalse\secdef\@subsection\@ssubsection}
+\def\@subsection[#1]#2{%
+  \refstepcounter{subsection}%
+  \addcontentsline{toc}{subsection}{\protect\numberline{\thesubsection}#1}%
+  \subsectionmark{#1}%
+  \@maksubsectionhead{#2}\@afterheading
+}
+\def\@ssubsection#1{\@maksubsectionheadstar{#1}\@afterheading}
+
+\makeatother
+

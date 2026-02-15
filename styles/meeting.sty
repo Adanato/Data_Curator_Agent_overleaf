@@ -1,0 +1,152 @@
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{styles/meeting}[2026/01/16 Meeting Log Styling]
+
+\RequirePackage{xcolor}
+\RequirePackage{tcolorbox}
+\RequirePackage{fontawesome5}
+\RequirePackage{hyperref}
+\RequirePackage{tikz}
+
+\tcbuselibrary{skins, breakable}
+
+% --- Color Palette (Cool Slate/Blue Theme) ---
+\definecolor{meetingblue}{HTML}{2A74B9}
+\definecolor{taskframe}{HTML}{2D3748} % Cool Slate - Borders
+\definecolor{taskback}{HTML}{EDF2F7}  % Light Blue-Gray - Backgrounds
+\definecolor{successgreen}{HTML}{38A169} % Success Green - Findings
+\definecolor{successback}{HTML}{F0FFF4} % Light Green - Backgrounds
+
+% --- Minimalistic Chapter Style ---
+\makeatletter
+\def\@makechapterhead#1{%
+  \vspace*{10\p@}%
+  {\parindent \z@ \raggedright \normalfont
+    \ifnum \c@secnumdepth >\m@ne
+        \huge\bfseries \thechapter\space
+    \fi
+    \huge \bfseries #1\par\nobreak
+    \vskip 20\p@
+  }}
+\makeatother
+
+% --- Meeting Header Panel Style ---
+\newtcolorbox{meetingheaderbox}{%
+    enhanced,
+    sidebyside,
+    sidebyside align=top,
+    sidebyside gap=15pt,
+    lefthand width=0.45\textwidth,
+    colback=white,
+    colframe=meetingblue,
+    arc=1mm,
+    outer arc=1mm,
+    leftrule=5pt,
+    rightrule=0.5pt,
+    toprule=0.5pt,
+    bottomrule=0.5pt,
+    title={Meeting Details},
+    coltitle=meetingblue,
+    fonttitle=\bfseries\sffamily,
+    attach title to upper,
+    after title={\par\medskip},
+    before skip=10pt,
+    after skip=20pt,
+    segmentation style={draw=meetingblue!30, line width=1pt, solid},
+}
+
+% --- HF Links Helpers ---
+% Usage:
+% \hflinks{
+%   \hflink{dataset}{https://huggingface.co/datasets/...}
+%   \hflink{model}{https://huggingface.co/...}
+% }
+%
+% Default shows "Link" to keep the panel compact.
+% If you want the URL shown instead, replace "Link" with \texttt{#2}.
+\newcommand{\hflink}[2]{%
+  \noindent\faLink\space \textbf{#1:} \href{#2}{Link}\par
+}
+\newcommand{\hflinks}[1]{#1}
+
+% --- Meeting Header Command ---
+% Accepts 5 arguments: {Date}{Commit}{HF}{Summary}{Housekeeping}
+% HF (#3) can be either:
+%   - a single URL: {https://...}
+%   - a list using \hflinks{ \hflink{...}{...} ... }
+\newcommand{\meetingheader}[5]{%
+    \begin{meetingheaderbox}
+        % LEFT PANEL
+        \small
+        \faCalendar* \space \textbf{Date:} #1 \\
+        \faGithub \space \textbf{Git:} \texttt{#2} \\[3pt]
+        \faGrinBeam \space \textbf{HF:}\\
+        #3
+        
+        \tcblower
+        
+        % RIGHT PANEL
+        \small
+        \faInfoCircle \space \textbf{Summary:}\\
+        \textit{#4}
+        
+        % HOUSEKEEPING (Conditional)
+        \if\relax\detokenize{#5}\relax
+            % Empty, do nothing
+        \else
+            \par\vspace{8pt}
+            \noindent\tikz{\draw[dashed, meetingblue!50, line width=1pt] (0,0) -- (\linewidth,0);}
+            \par\vspace{5pt}
+            \textbf{\faBroom \space Housekeeping:}\\
+            \textit{#5}
+        \fi
+    \end{meetingheaderbox}%
+}
+
+% --- Meeting Tasks Box (Refined Blue Design) ---
+\newcommand{\meetingtasks}[1]{%
+    \begin{tcolorbox}[
+        enhanced,
+        breakable,
+        colback=taskback,
+        colframe=meetingblue,
+        title={\faClipboardCheck\space Tasks},
+        coltitle=meetingblue,
+        fonttitle=\bfseries\sffamily\Large,
+        attach title to upper,
+        after title={\par\medskip},
+        before skip=20pt,
+        after skip=10pt,
+        boxrule=1pt,
+        arc=2mm
+    ]%
+        \begin{enumerate}
+            #1
+        \end{enumerate}%
+    \end{tcolorbox}%
+}
+
+\providecommand{\todo}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
+
+% --- Key Findings Box (Success Green) ---
+\newcommand{\keyfindings}[1]{%
+    \begin{tcolorbox}[
+        enhanced,
+        breakable,
+        colback=successback,
+        colframe=successgreen,
+        title={\faLightbulb\space Key Findings},
+        coltitle=successgreen,
+        fonttitle=\bfseries\sffamily\Large,
+        attach title to upper,
+        after title={\par\medskip},
+        before skip=20pt,
+        after skip=10pt,
+        boxrule=1pt,
+        arc=2mm,
+        borderline west={4pt}{0pt}{successgreen}
+    ]%
+        \begin{itemize}
+            #1
+        \end{itemize}%
+    \end{tcolorbox}%
+}
