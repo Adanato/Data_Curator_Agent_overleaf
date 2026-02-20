@@ -1,0 +1,64 @@
+% boxes.sty
+% ----------------------------
+% Elegant research boxes for motivation, findings, and notes
+% ----------------------------
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{boxes}[2025/10/14 Research Box Environments]
+
+\RequirePackage{xcolor}
+\RequirePackage{tcolorbox}
+\tcbuselibrary{skins, breakable}
+
+% ---- Color Palette ----
+\definecolor{motivationback}{HTML}{E8F1FC} % light blue background
+\definecolor{motivationframe}{HTML}{2A74B9} % deep blue border
+\definecolor{findingsback}{HTML}{E8FBF4}   % light mint background
+\definecolor{findingsframe}{HTML}{2BB673}  % teal/green border
+\definecolor{noteback}{HTML}{FFF8E6}       % pale yellow background
+\definecolor{noteframe}{HTML}{D4A017}      % gold border
+
+% ---- Shared box style template ----
+\tcbset{
+  researchbox/.style={
+    enhanced,
+    breakable,
+    coltitle=white,
+    fonttitle=\bfseries\sffamily\large,
+    boxrule=1pt,
+    left=8pt,
+    right=8pt,
+    top=6pt,
+    bottom=6pt,
+    sharp corners,
+    before skip=10pt,
+    after skip=10pt,
+    title={#1},
+  }
+}
+
+% ---- Individual Boxes ----
+\newtcolorbox{motivationbox}[1][]{
+  researchbox,
+  colback=motivationback,
+  colframe=motivationframe,
+  title={#1}
+}
+
+\newtcolorbox{findingsbox}[1][Key Findings]{
+  researchbox,
+  colback=findingsback,
+  colframe=findingsframe,
+  title={#1},
+  borderline west={4pt}{0pt}{findingsframe},
+  before upper={\begin{itemize}},
+  after upper={\end{itemize}},
+  nobeforeafter,        % <- prevents vertical reordering
+}
+
+\newtcolorbox{notebox}[1][]{
+  researchbox,
+  colback=noteback,
+  colframe=noteframe,
+  title={#1}
+}
+
