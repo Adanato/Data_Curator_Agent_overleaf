@@ -2,7 +2,7 @@
 \centering
 \begin{forest}
   for tree={
-    font=\ttfamily,
+    font=\ttfamily\small,
     grow'=0,
     child anchor=west,
     parent anchor=south,
@@ -18,24 +18,33 @@
     fit=band,
     before computing xy={l=15pt},
   }
-  [\textcolor{meetingblue}{\textbf{data-curator-agent/}}
-    [\textcolor{meetingblue}{src/}
-      [agents/
-        [curator\_agent.py]
-      ]
-      [tools/
-        [\_\_init\_\_.py]
-      ]
-      [main.py]
+  [\textcolor{meetingblue}{\textbf{autogen\_agent/src/autogen\_agent/}}
+    [\textcolor{meetingblue}{agents/}
+      [curation.py \textnormal{\scriptsize\textit{--- SASAgent loop}}]
+      [observability.py \textnormal{\scriptsize\textit{--- RunSummary, logging}}]
     ]
-    [\textcolor{meetingblue}{tests/}
-      [test\_agent.py]
+    [\textcolor{meetingblue}{application/}
+      [config.py \textnormal{\scriptsize\textit{--- YAML $\to$ (agent\_config, task)}}]
+      [prompts.py \textnormal{\scriptsize\textit{--- composable system prompt}}]
+      [runners.py \textnormal{\scriptsize\textit{--- run\_once() entry point}}]
     ]
-    [pyproject.toml]
-    [.envrc]
-    [README.md]
+    [\textcolor{meetingblue}{domain/}
+      [models.py \textnormal{\scriptsize\textit{--- DataRecipe, RecipeComponent}}]
+      [training\_dataset.py]
+      [eval\_dataset.py]
+    ]
+    [\textcolor{meetingblue}{infra/}
+      [session\_context.py \textnormal{\scriptsize\textit{--- singleton context}}]
+      [model\_client.py \textnormal{\scriptsize\textit{--- OpenAI client factory}}]
+      [dataset\_store.py \textnormal{\scriptsize\textit{--- in-memory cache}}]
+    ]
+    [\textcolor{meetingblue}{tools/}
+      [\textcolor{meetingblue}{preselection/} \textnormal{\scriptsize\textit{--- profile, mix ratio, VLM ops}}]
+      [\textcolor{meetingblue}{selection/} \textnormal{\scriptsize\textit{--- inspect, diagnose, clean}}]
+      [\textcolor{meetingblue}{postselection/} \textnormal{\scriptsize\textit{--- save, finetune, eval}}]
+    ]
   ]
 \end{forest}
-\caption{Data Curator Agent repository structure}
+\caption{Curation agent package structure}
 \label{fig:repo-structure}
 \end{figure}

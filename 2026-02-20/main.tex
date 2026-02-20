@@ -28,6 +28,145 @@ Motivation: Simplicity of testing and observation of failure modes and patterns 
 
 
 \subsection{Design}
+
+The curation agent is a thin abstraction layer on top of the AutoGen Core framework.
+It implements a single-agent \textbf{reason--act--observe} loop that iteratively calls tools
+until it produces a final text response.
+
+\input{2026-02-20/directory}
+
+\subsection{Tool Ingestion}
+
+Tools are plain Python functions with typed signatures. Each is wrapped in AutoGen's
+\texttt{FunctionTool}, which introspects the function signature and docstring to generate
+an OpenAI-compatible JSON tool schema:
+
+\begin{verbatim}
+def profile_datasets(
+    sample_n: Annotated[int,
+        "Number of rows to sample (0 = all)"] = 0,
+    seed: Annotated[int, "Random seed"] = 42,
+) -> str:
+    """Load all candidate datasets and compute
+    quality profiles."""
+    ...
+\end{verbatim}
+
+\noindent becomes:
+
+\begin{verbatim}
+{
+  "name": "profile_datasets",
+  "description": "Load and profile ALL candidate ...",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "sample_n": {
+        "type": "integer",
+        "description": "Number of rows to sample ..."
+      },
+      "seed": {"type": "integer", ...}
+    }
+  }
+}
+\end{verbatim}
+
+\noindent The full tool list is passed on \textbf{every} LLM call via
+\texttt{client.create(messages, tools=self.\_tools)}.
+The model sees all available tools at every iteration and decides whether to call one
+or return text.
+
+\subsection{Conversation History (Reason--Act--Observe Loop)}
+
+The agent maintains a linear message history that grows with each iteration.
+The pseudocode below shows the exact message types appended at each step:
+
+\begin{verbatim}
+messages = [
+  SystemMessage(system_prompt),         # role + task + workflow
+  UserMessage(task_description),        # "Profile FineVision5..."
+
+  # --- iteration 1: ACT ---
+  AssistantMessage(content=[            # model chooses a tool
+    FunctionCall(
+      name="profile_datasets",
+      arguments='{"sample_n": 0}')
+  ]),
+  # --- iteration 1: OBSERVE ---
+  FunctionExecutionResultMessage([      # tool output fed back
+    FunctionExecutionResult(
+      name="profile_datasets",
+      content='{"num_datasets":5, ...}')
+  ]),
+
+  # --- iteration 2: ACT ---
+  AssistantMessage(content=[
+    FunctionCall(
+      name="compute_mix_ratio",
+      arguments='{"quality_scores":"...", ...}')
+  ]),
+  # --- iteration 2: OBSERVE ---
+  FunctionExecutionResultMessage([
+    FunctionExecutionResult(
+      name="compute_mix_ratio",
+      content='{"recipe": {...}}')
+  ]),
+
+  # --- iteration 3: TERMINATE ---
+  AssistantMessage(content="Final summary: ...")
+  # text response -> loop breaks
+]
+\end{verbatim}
+
+\noindent \textbf{Termination:} The loop ends when the model returns a plain text string
+instead of a tool call. The agent sets \texttt{stop\_reason = "text\_response"} and breaks.
+Other exit conditions: repeated tool calls ($\geq 3\times$) or \texttt{max\_iterations}.
+
+\subsection{System Prompt (Preselection Style)}
+
+The system prompt is assembled from composable sections selected by \texttt{prompt\_style}
+in the task YAML. Below is the preselection style used in experiments:
+
+\begin{verbatim}
+You are a data curation agent performing the
+**preselection phase**. Your job is to profile
+candidate datasets, assess their quality, and compute
+an optimal mix ratio for fine-tuning.
+
+## Task
+Profile the FineVision5 candidate datasets, compute
+quality scores from existing metadata, and determine
+an optimal mix ratio for a 100k-sample VLM training
+mixture.
+
+## Target Model
+Qwen/Qwen2.5-VL-7B-Instruct
+
+## Sample Budget
+100000 total samples
+
+## Available Datasets
+LLaVA_Instruct_150K, vqav2, ocrvqa, captcha,
+CoSyn_400k_chart
+
+## Preselection Workflow
+Follow these three steps in order:
+
+### Step 1: Profile
+Call profile_datasets to load all candidate datasets
+and compute quality scores from their metadata.
+
+### Step 2: Assess
+Analyze the quality profiles. Consider dataset sizes,
+quality score distributions, and fitness for the
+target model.
+
+### Step 3: Compute Mix
+Call compute_mix_ratio with quality_scores and
+effective_sizes to determine the optimal mix ratio.
+Total samples must fit within the sample budget.
+\end{verbatim}
+
 \begin{figure}[ht]
     \centering
     % \includegraphics[width=0.8\linewidth]{2026-02-20/figures/autogen_single_agent_system.pdf}
@@ -45,6 +184,5 @@ Motivation: Simplicity of testing and observation of failure modes and patterns 
 
 \meetingtasks{
     \item \todo{Evaluate Single Agent System Via Baselines}
-    \item \todo{Locate failure modes that motivate greater Multi Agent System Design. What motivatees a dedicated agent for each part? What would such agents solve that a single strong reasoning agent couldn\'t?}
+    \item \todo{Locate failure modes that motivate greater Multi Agent System Design. What motivatees a dedicated agent for each part? What would such agents solve that a single strong reasoning agent couldn't?}
 }
-
