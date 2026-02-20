@@ -1,0 +1,50 @@
+\meetingheader
+    % Date
+    {Feb 20, 2026}
+    % Git
+    {commit\_id}
+    % Links
+    {\meetinglinks{
+        \meetinglink{Feiyang - Tasks Research Paper Baselines}{https://docs.google.com/document/d/1zWGD77TwfEV1YIu0qf12wiF8QwLmFGJvXv5zDWpY8DY/edit?tab=t.cptniv3ucalr\#heading=h.by11bqpevc2}
+	\meetinglink{Feiyang - Agent Skills}{https://docs.google.com/document/d/12R-l8-FlARc7q0jRI8gKOMHPRlXV-e5oCmwdQANgV9w/edit?tab=t.0\#heading=h.p4acw1gohv8l}
+        \meetinglink{Hanze - Agent Design Google Doc}{https://docs.google.com/document/d/1W9h013IDs60LMBDfKyyoPzRYBxbdadayO2ePJW5Eo4U/edit?tab=t.0}
+        \meetinglink{Ruoxi - Benchmark Design}{https://docs.google.com/document/d/16LiPuHChJ2uD9LK5LwuYoFj7qshdletW5NUXXVaNh74/edit?usp=sharing}
+    }}
+    % Summary
+    {\begin{itemize}
+        \item Read documentation on autogen
+	\item tested execution boundaries: docker, local
+	\item bothered feiyang some more
+    \end{itemize}}
+    % Housekeeping
+    {Housekeeping items (e.g. minor updates)...}
+
+
+
+
+\section{Single Agent System}
+
+Motivation: Simplicity of testing and observation of failure modes and patterns to motivate Multi Agent System (MAS)
+
+
+\subsection{Design}
+\begin{figure}[ht]
+    \centering
+    % \includegraphics[width=0.8\linewidth]{2026-02-20/figures/autogen_single_agent_system.pdf}
+    \begin{tikzpicture}
+        \fill[gray!25] (0,0) rectangle (10,6);
+        \draw[gray!45, line width=1.5pt] (0,0) -- (10,6);
+        \draw[gray!45, line width=1.5pt] (0,6) -- (10,0);
+        \node at (5,3) {\textbf{\Large AutoGen Single Agent System Design}};
+    \end{tikzpicture}
+    \caption{AutoGen single agent system design}
+    \label{fig:autogen-single-agent}
+\end{figure}
+
+
+
+\meetingtasks{
+    \item \todo{Evaluate Single Agent System Via Baselines}
+    \item \todo{Locate failure modes that motivate greater Multi Agent System Design. What motivatees a dedicated agent for each part? What would such agents solve that a single strong reasoning agent couldn\'t?}
+}
+

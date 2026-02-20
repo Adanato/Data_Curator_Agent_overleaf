@@ -1,0 +1,41 @@
+\begin{figure}[ht]
+\centering
+\begin{forest}
+  for tree={
+    font=\ttfamily,
+    grow'=0,
+    child anchor=west,
+    parent anchor=south,
+    anchor=west,
+    calign=first,
+    edge path={
+      \noexpand\path [draw, meetingblue]
+        (!u.south west) +(7.5pt,0) |- node[fill,inner sep=1.25pt] {} (.child anchor)\forestoption{edge label};
+    },
+    before typesetting nodes={
+      if n=1 {insert before={[,phantom]}} {}
+    },
+    fit=band,
+    before computing xy={l=15pt},
+  }
+  [\textcolor{meetingblue}{\textbf{data-curator-agent/}}
+    [\textcolor{meetingblue}{src/}
+      [agents/
+        [curator\_agent.py]
+      ]
+      [tools/
+        [\_\_init\_\_.py]
+      ]
+      [main.py]
+    ]
+    [\textcolor{meetingblue}{tests/}
+      [test\_agent.py]
+    ]
+    [pyproject.toml]
+    [.envrc]
+    [README.md]
+  ]
+\end{forest}
+\caption{Data Curator Agent repository structure}
+\label{fig:repo-structure}
+\end{figure}
