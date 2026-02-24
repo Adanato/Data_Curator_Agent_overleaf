@@ -61,6 +61,53 @@ Claude: 50 max turns, adaptive thinking (high).
 Codex: \texttt{-{}-full-auto}, \texttt{xhigh} reasoning effort.
 
 I gave these agents full automated control of their environments with unrestricted native tool calling.
+
+The system prompt given to both agents:
+
+\begin{verbatim}
+You are a data curation agent. Your job is to prepare a
+high-quality fine-tuning dataset.
+
+## Task
+Curate visual instruction-tuning data for
+Qwen2.5-VL-7B-Instruct to maximize performance on MMStar,
+OCRBench, MathVista, HallusionBench, MMVet, and MMMU.
+
+## Target Model
+Qwen/Qwen2.5-VL-7B-Instruct
+
+## Sample Budget
+100000 total samples
+
+## Available Datasets
+HuggingFace Arrow format on disk at
+/helios-storage/.../FineVision5/:
+- LLaVA_Instruct_150K
+- vqav2
+- ocrvqa
+- captcha
+- CoSyn_400k_chart
+
+Each dataset has an "images" column (list of PIL images)
+and a "texts" column (list of {user, assistant} dicts).
+
+## Pipeline
+1. Profile - Load and inspect each dataset.
+2. Image Filter - Remove rows with missing/corrupt images,
+   min side < 200px, or aspect ratio > 3:1.
+3. Assess - Assign a quality score (0-1) per dataset.
+4. Compute Mix - Quality-weighted ratios. Total <= 100000.
+5. Mix - Sample and concatenate into one combined dataset.
+6. Submit - Save and print JSON summary.
+
+## Output
+Save to /workspace/output/benchmark/dataset/ in Arrow format.
+Print JSON summary: datasets, ratios, sample_counts, total,
+reasoning.
+\end{verbatim}
+
+\noindent CLI invocations:
+
 \begin{verbatim}
 # Claude
 claude -p "$(cat task_prompt.txt)" \
@@ -94,7 +141,7 @@ Model                   & claude-opus-4-6     & gpt-5.3-codex \\
 Reasoning               & adaptive (high)     & xhigh \\
 Wall time               & 44.9 min            & 11.0 min \\
 API turns               & 51                  & 1 \\
-Shell commands          & $\sim$40            & --- \\
+Shell commands          & $\sim$40            & 42 \\
 Cost                    & \$2.16              & --- \\
 Exit code               & 0                   & 0 \\
 \bottomrule
@@ -103,7 +150,25 @@ Exit code               & 0                   & 0 \\
 
 \subsection{Dataset Mix}
 
-These are the dataset mix allocation assigned codex gives us a uniform data recipe. But for Claude we need to read its logs to understand its reasoning for its data recipe.
+Both agents invented quality formulas from scratch and reported their reasoning in their output logs.
+
+\textbf{Claude's formula} (L863): two-stage scoring.
+First, a per-dataset composite quality score:
+\[
+q = 0.30 \cdot \frac{\text{relevance}}{5} + 0.30 \cdot \frac{\text{img\_corr}}{5} + 0.25 \cdot \frac{\text{vis\_dep}}{5} + 0.15 \cdot \frac{\text{formatting}}{5}
+\]
+Then benchmark-relevance multipliers: LLaVA $\times$1.2 (``covers 4/6 benchmarks''),
+CoSyn $\times$1.3 (``unique MathVista coverage, highest image\_correspondence''),
+ocrvqa $\times$1.1 (``critical for OCRBench''),
+vqav2 $\times$0.8 (``supplementary short-form VQA'').
+Final ratio = adjusted score / total. Within each dataset, rows ranked by per-row composite score and top-$k$ selected.
+
+\textbf{Codex's formula} (run.jsonl): single-stage blend of empirical retention and hardcoded relevance priors:
+\[
+q = 0.45 \cdot \text{retention} + 0.55 \cdot \text{relevance\_prior}
+\]
+where \texttt{relevance\_prior} values were invented inline (LLaVA: 0.95, CoSyn: 0.93, ocrvqa: 0.92, vqav2: 0.78, captcha: 0.35).
+Allocation weights are quality scores directly (no sqrt). Sampling is random within each filtered dataset.
 
 \begin{table}[H]
 \centering
