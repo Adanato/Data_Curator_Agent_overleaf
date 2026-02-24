@@ -172,7 +172,7 @@ Then benchmark-relevance multipliers: \begin{enumerate}
 \end{enumerate}
 \vspace{1cm}
 
-\textbf{Codex's formula} (run.jsonl): single-stage blend of empirical retention and hardcoded relevance priors:
+\textbf{Codex's formula} (codex-gpt-5.3-xhigh.jsonl, L36): single-stage blend of empirical retention and hardcoded relevance priors:
 \[
 q = 0.45 \cdot \text{retention} + 0.55 \cdot \text{relevance\_prior}
 \]
@@ -215,7 +215,7 @@ After reading the logs, we can see inefficient patterns the agents take to grasp
     \item \textbf{No principled approach} Despite having web access, neither agent
         performed a single search to inform its allocation. Both invented quality score formulas on the fly:
         Claude used rating-column weights with benchmark multipliers (L863);
-        Codex used $0.45 \cdot \text{retention} + 0.55 \cdot \text{relevance\_prior}$ (run.jsonl).
+        Codex used $0.45 \cdot \text{retention} + 0.55 \cdot \text{relevance\_prior}$ (codex-gpt-5.3-xhigh.jsonl, L36).
 \end{enumerate}
 
 
@@ -238,7 +238,7 @@ Top allocation
 \addlinespace
 Quality scoring
     & Rating columns with per-benchmark multipliers (L863)
-    & $0.45 \cdot \text{retention} + 0.55 \cdot \text{relevance\_prior}$ (run.jsonl) \\
+    & $0.45 \cdot \text{retention} + 0.55 \cdot \text{relevance\_prior}$ (L36) \\
 \addlinespace
 Sample selection
     & Top-$k$ by composite quality score per dataset
