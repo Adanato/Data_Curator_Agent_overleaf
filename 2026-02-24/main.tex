@@ -15,32 +15,33 @@
 
 \newpage
 \section{DataAgent Experiments (gpt-oss-120b)}
-
+No major changes just running the 
 Single-agent reason--act--observe loop backed by \texttt{gpt-oss-120b},
 with typed Python tools and a composable system prompt from the task YAML's \texttt{prompt\_style} field.
 Three failure modes surfaced:
 
 \begin{enumerate}
-    \item \textbf{Tool neutrality.}
-        The model treats tool descriptions as an implicit pipeline ordering.
-        After \texttt{profile\_datasets} returns scores, it always calls \texttt{compute\_mix\_ratio} next,
-        skipping filtering. Tool presentation needs randomized ordering or capability-based descriptions.
+    \item \textbf{Tool presentation bias. (minor)}
+        If we aren't careful about the tool description itself, the agent will treat tool descriptions as an implicit pipeline ordering and a lack of detail could cause the agent to ignore the tool or call it at the wrong time. 
+    \item \textbf{System Prompt explicitness.}
+    Without step-by-step pipeline instructions, \texttt{gpt-oss-120b} skips tools, hallucinates arguments,
+    or terminates early.
+    The \texttt{preselection} prompt required the following six explicit steps:
+    \begin{enumerate}
+        \item Profile
+        \item Image Filter
+        \item Assess
+        \item Compute Mix
+        \item Mix
+        \item Submit (custom tool I added for the model to terminate itself)
+    \end{enumerate}
 
-    \item \textbf{Prompt explicitness.}
-        Without step-by-step instructions, \texttt{gpt-oss-120b} skips tools, hallucinates arguments,
-        or terminates early.
-        The \texttt{preselection} prompt (six steps:
-        Profile $\rightarrow$ Image Filter $\rightarrow$ Assess $\rightarrow$ Compute Mix $\rightarrow$ Mix $\rightarrow$ Submit)
-        was required for consistent behavior.
-        For weaker models, prompts act as hard constraints, not guidance.
-
-    \item \textbf{Domain-aware tool parameters.}
-        \texttt{vlm\_filter} encodes VLM best-practice thresholds (200px min side, 3:1 max aspect).
-        \texttt{compute\_mix\_ratio} uses \texttt{quality * sqrt(effective\_size)}.
-        \texttt{SessionContext} constrains arguments to valid dataset names.
-        These are precisely what the baselines lack (Section~\ref{sec:baselines}).
+    \item \textbf{Tool environment and parameters}
+        The action space for deciding the arguements of the tools are so big and how do we allow the agent to stay within the environment? We have to hard code the tools for now which reduces the flexibility of our approach.
 \end{enumerate}
 
+
+However there is hope...
 %% ============================================================
 %% SECTION 2: CODING AGENT BASELINES
 %% ============================================================
@@ -48,6 +49,8 @@ Three failure modes surfaced:
 \newpage
 \section{Coding Agent Baselines}
 \label{sec:baselines}
+
+Spent my weekend on setting this up and making sure it could prove the potential of our specialized data agent.
 
 \subsection{Experimental Setup}
 
@@ -57,6 +60,7 @@ Same one-shot guided prompt; each agent wrote its own pipeline from scratch.
 Claude: 50 max turns, adaptive thinking (high).
 Codex: \texttt{-{}-full-auto}, \texttt{xhigh} reasoning effort.
 
+I gave these agents full automated control of their environments with unrestricted native tool calling.
 \begin{verbatim}
 # Claude
 claude -p "$(cat task_prompt.txt)" \
@@ -75,6 +79,8 @@ codex exec "$(cat task_prompt.txt)" \
 \noindent Full JSONL logs are in \texttt{2026-02-24/logs/}.
 
 \subsection{Runtime and Resource Usage}
+
+it is quite costly and time consuming to run these and codex seems to quite early even though.
 
 \begin{table}[H]
 \centering
@@ -96,6 +102,8 @@ Exit code               & 0                   & 0 \\
 \end{table}
 
 \subsection{Dataset Mix}
+
+These are the dataset mix allocation assigned codex gives us a uniform data recipe. But for Claude we need to read its logs to understand its reasoning for its data recipe.
 
 \begin{table}[H]
 \centering
@@ -145,28 +153,25 @@ CoSyn\_400k\_chart     & 116,814 & 116,143 & 671 aspect \\
 
 \newpage
 \section{Log Analysis}
-
-Three patterns emerged from the JSONL logs:
+After reading the logs, we can see three inefficient patterns the agents take to grasp the data selection domain.
 
 \begin{enumerate}
-    \item \textbf{Exploration tax.} Both agents spent 8--10 turns on environment discovery
+    \item \textbf{Domain \& Exploration tax} Both agents spent 8--10 turns on environment discovery
         (\texttt{python} not found, schema crashes, permission errors, read-only FS)
-        before producing any data insight. The DataAgent's \texttt{SessionContext} eliminates this entirely.
-    \item \textbf{No principled differentiation.} Despite having web access, neither agent
-        performed a single search to inform its allocation. Both invented ad-hoc quality formulas:
+        before producing any data insight. Our agent has a guided pipeline which reduces this kind of exploration tax and domain awareness cost that codex and claude have to pay.
+        
+    \item \textbf{No principled approach} Despite having web access, neither agent
+        performed a single search to inform its allocation. Both invented quality score formulas on the fly:
         Claude used rating-column weights with benchmark multipliers (L863);
         Codex used $0.45 \cdot \text{retention} + 0.55 \cdot \text{relevance\_prior}$ (run.jsonl).
-    \item \textbf{Single-shot variance.} Allocations diverge by up to 5.5pp per dataset
-        (vqav2: 17.9\% vs 23.4\%) with no basis for choosing one over the other.
-        The DataAgent's orchestrator ensemble absorbs this via \texttt{compute\_stats()}.
 \end{enumerate}
+
 
 %% ============================================================
 %% SECTION 4: DISCUSSION
 %% ============================================================
 
-\newpage
-\section{Discussion}
+
 
 \subsection{Strategy Comparison}
 
@@ -208,7 +213,7 @@ Image parsing
 \end{tabular}
 \end{table}
 
-\noindent \textit{Note:} An earlier run with \texttt{COPY .\ /workspace} leaked curation agent source code to Claude. Fixed by removing the copy; results above are from the clean run.
+\newpage
 
 \keyfindings{
     \item \textbf{DataAgent (gpt-oss-120b):} Tool neutrality and prompt explicitness are critical.
@@ -223,10 +228,10 @@ Image parsing
         per dataset, motivating the ensemble approach in the orchestrator.
 }
 
+For the next steps, I think pushing forward with the data agent has high promise. I talked with feiyang and believe the following tasks would be relevant on the agent design side.
+
 \meetingtasks{
-    \item \todo{Fine-tune Qwen2.5-VL-7B on both mixes and compare benchmark scores}
-    \item \todo{Add \texttt{source} column requirement to task prompt}
-    \item \todo{Run DataAgent (gpt-oss-120b) on same task for 3-way comparison}
-    \item \todo{Investigate tool neutrality: randomize tool ordering across runs}
-    \item \todo{Run orchestrator scaling study (5 agents $\times$ 10 iterations) to quantify ensemble benefit}
+    \item \todo{}
+    \item \todo{I}
+    \item \todo{Explore the baesline setup: In addition to the system prompt, what if the coding agents were told to use their full capabilities to search the internet and solve the problem independently? (I can run this in the background)}
 }
