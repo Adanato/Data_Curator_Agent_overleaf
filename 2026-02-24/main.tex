@@ -16,70 +16,30 @@
 \newpage
 \section{DataAgent Experiments (gpt-oss-120b)}
 
-Feiyang and Hanze provided the initial tool implementations and the FineVision5 (LLaVA) datasets to test on.
-While running the curation agent against these tools, several failure modes and design questions surfaced
-that will inform multi-agent system design.
+Single-agent reason--act--observe loop backed by \texttt{gpt-oss-120b},
+with typed Python tools and a composable system prompt from the task YAML's \texttt{prompt\_style} field.
+Three failure modes surfaced:
 
-\subsection{Setup}
+\begin{enumerate}
+    \item \textbf{Tool neutrality.}
+        The model treats tool descriptions as an implicit pipeline ordering.
+        After \texttt{profile\_datasets} returns scores, it always calls \texttt{compute\_mix\_ratio} next,
+        skipping filtering. Tool presentation needs randomized ordering or capability-based descriptions.
 
-The curation agent uses a single-agent reason--act--observe loop (see Feb 20 notes) backed by
-\texttt{gpt-oss-120b} via an OpenAI-compatible API.
-The agent is given a set of typed Python tools (profiling, filtering, mix computation)
-and a composable system prompt assembled from the task YAML's \texttt{prompt\_style} field.
+    \item \textbf{Prompt explicitness.}
+        Without step-by-step instructions, \texttt{gpt-oss-120b} skips tools, hallucinates arguments,
+        or terminates early.
+        The \texttt{preselection} prompt (six steps:
+        Profile $\rightarrow$ Image Filter $\rightarrow$ Assess $\rightarrow$ Compute Mix $\rightarrow$ Mix $\rightarrow$ Submit)
+        was required for consistent behavior.
+        For weaker models, prompts act as hard constraints, not guidance.
 
-\subsection{Observation 1: Tool Neutrality}
-
-If the tool descriptions are not carefully neutralized, the model becomes biased toward calling
-a particular tool immediately after another.
-For example, when \texttt{profile\_datasets} returns quality scores, the model reliably calls
-\texttt{compute\_mix\_ratio} next, \emph{even when intermediate assessment or filtering would be
-more appropriate}.
-The model treats tool descriptions as an implicit pipeline ordering rather than a menu of capabilities.
-
-\textbf{What we want:} The model should reason about what the tools could \emph{achieve} given the
-current state, not follow a rigid sequence implied by tool ordering or naming.
-This motivates research into tool presentation strategies (randomized ordering, neutral naming,
-capability-based descriptions rather than workflow-based descriptions).
-
-\subsection{Observation 2: System Prompt Explicitness}
-
-The system prompt must be quite explicit for \texttt{gpt-oss-120b}.
-Without step-by-step workflow instructions, the model frequently:
-\begin{itemize}
-    \item Skips the \texttt{compute\_mix\_ratio} tool entirely and invents its own allocation in text
-    \item Terminates after profiling without performing any quality assessment
-    \item Calls tools with hallucinated arguments that don't match the schema
-\end{itemize}
-
-\noindent The \texttt{preselection} prompt style (which prescribes six numbered steps:
-Profile $\rightarrow$ Image Filter $\rightarrow$ Assess $\rightarrow$ Compute Mix $\rightarrow$ Mix $\rightarrow$ Submit) was required to get consistent tool usage.
-More open prompt styles (\texttt{task\_goal}, \texttt{open}) produced unreliable results.
-
-\textbf{Implication:} For weaker models, the system prompt functions less as guidance and more as
-a hard constraint.
-The DataAgent's composable prompt system (6 information regimes from \texttt{full} to \texttt{minimal})
-is designed to test exactly this axis: how much structure does the model need before it can
-make autonomous decisions?
-
-\subsection{Observation 3: Domain-Aware Tool Parameters}
-
-The tools encode domain knowledge that the model would otherwise lack.
-\texttt{vlm\_filter} has hardcoded thresholds (\texttt{min\_side=200px}, \texttt{max\_aspect=3:1})
-derived from VLM training best practices.
-\texttt{compute\_mix\_ratio} implements a documented formula (\texttt{quality * sqrt(effective\_size)})
-rather than leaving allocation to LLM intuition.
-The \texttt{SessionContext} singleton constrains tool arguments to valid dataset names, preventing
-the model from calling tools on nonexistent datasets.
-
-These constraints are precisely what the baselines lack (see Section~\ref{sec:baselines}).
-
-\subsection{Open Questions}
-
-\begin{itemize}
-    \item How to measure the ``tool neutrality'' axis: can we quantify ordering bias?
-    \item Does prompt explicitness interact with model scale? (120b vs 405b vs frontier)
-    \item Can we use the orchestrator's ensemble mechanism to average over prompt styles?
-\end{itemize}
+    \item \textbf{Domain-aware tool parameters.}
+        \texttt{vlm\_filter} encodes VLM best-practice thresholds (200px min side, 3:1 max aspect).
+        \texttt{compute\_mix\_ratio} uses \texttt{quality * sqrt(effective\_size)}.
+        \texttt{SessionContext} constrains arguments to valid dataset names.
+        These are precisely what the baselines lack (Section~\ref{sec:baselines}).
+\end{enumerate}
 
 %% ============================================================
 %% SECTION 2: CODING AGENT BASELINES
@@ -91,15 +51,11 @@ These constraints are precisely what the baselines lack (see Section~\ref{sec:ba
 
 \subsection{Experimental Setup}
 
-Docker containers isolate each coding agent from helios4.
-The containers mount the FineVision5 datasets \textbf{read-only} and provide an
-empty workspace with no access to our curation agent codebase.
-Pre-installed packages: \texttt{datasets}, \texttt{pyarrow}, \texttt{numpy}, \texttt{Pillow}, \texttt{uv}.
-All agents received the same one-shot guided prompt and had to write their own pipeline from scratch.
-
-Claude Code was limited to 50 agentic turns via \texttt{-{}-max-turns 50}.
-Codex was run with \texttt{-{}-full-auto} at \texttt{xhigh} reasoning effort
-to provide a fair comparison with Claude's adaptive thinking (high).
+Docker containers mount FineVision5 \textbf{read-only} with no access to our curation agent codebase.
+Pre-installed: \texttt{datasets}, \texttt{pyarrow}, \texttt{numpy}, \texttt{Pillow}, \texttt{uv}.
+Same one-shot guided prompt; each agent wrote its own pipeline from scratch.
+Claude: 50 max turns, adaptive thinking (high).
+Codex: \texttt{-{}-full-auto}, \texttt{xhigh} reasoning effort.
 
 \begin{verbatim}
 # Claude
@@ -164,8 +120,7 @@ captcha                 & 0       & 0\%    & 0       & 0\% \\
 
 \subsection{Image Filter Statistics}
 
-All agents applied the same filter thresholds (\texttt{min\_side}$\geq$200px, aspect ratio$\leq$3:1).
-All 113k captcha images were rejected (150$\times$40px).
+Same thresholds across all agents ($\geq$200px min side, $\leq$3:1 aspect). All 113k captcha images rejected (150$\times$40px).
 
 \begin{table}[H]
 \centering
@@ -253,32 +208,7 @@ Image parsing
 \end{tabular}
 \end{table}
 
-\noindent \textit{Note:} An earlier run with \texttt{COPY .\ /workspace} allowed Claude
-to read all tool source code. Fixed by removing the copy; results above are from the clean run.
-
-\subsection{Why These Results Support the DataAgent Approach}
-
-The baselines reveal three structural weaknesses that the DataAgent is designed to address:
-
-\begin{enumerate}
-    \item \textbf{Exploration tax.}
-    Coding agents spend $\sim$8--10 turns on filesystem discovery, schema introspection,
-    and environment debugging before producing any data insight.
-    The DataAgent eliminates this entirely via \texttt{SessionContext} and \texttt{DatasetStore},
-    which pre-encode dataset locations, schemas, and loading strategies.
-
-    \item \textbf{No principled differentiation.}
-    Despite having web search capabilities, neither agent researched how dataset composition
-    affects VLM benchmark performance.
-    Both invented quality formulas from scratch with no empirical grounding.
-    The DataAgent's tools encode domain-aware parameters (filter thresholds from VLM best practices,
-    documented mixing formulas) so the LLM's reasoning is spent on strategy, not formula invention.
-
-    \item \textbf{Single-shot variance.}
-    Allocations vary by up to 5.5pp across runs with no basis for choosing one over another.
-    The DataAgent's orchestrator ensemble (parallel agents with \texttt{compute\_stats()})
-    produces consensus recipes that absorb this variance.
-\end{enumerate}
+\noindent \textit{Note:} An earlier run with \texttt{COPY .\ /workspace} leaked curation agent source code to Claude. Fixed by removing the copy; results above are from the clean run.
 
 \keyfindings{
     \item \textbf{DataAgent (gpt-oss-120b):} Tool neutrality and prompt explicitness are critical.
