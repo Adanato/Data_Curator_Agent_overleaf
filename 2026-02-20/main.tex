@@ -21,20 +21,17 @@
 
 
 
-
+\newpage
 \section{Single Agent System}
 
 Motivation: Simplicity of testing and observation of failure modes and patterns to motivate Multi Agent System (MAS)
 
 
-\subsection{Design}
 
-The curation agent is a thin abstraction layer on top of the AutoGen Core framework.
-It implements a single-agent \textbf{reason--act--observe} loop that iteratively calls tools
-until it produces a final text response.
 
 \input{2026-02-20/directory}
 
+\newpage
 \subsection{Tool Ingestion}
 
 Tools are plain Python functions with typed signatures. Each is wrapped in AutoGen's
@@ -76,7 +73,10 @@ def profile_datasets(
 The model sees all available tools at every iteration and decides whether to call one
 or return text.
 
-\subsection{Conversation History (Reason--Act--Observe Loop)}
+
+
+\newpage
+\subsection{Conversation History}
 
 The agent maintains a linear message history that grows with each iteration.
 The pseudocode below shows the exact message types appended at each step:
@@ -122,7 +122,8 @@ messages = [
 instead of a tool call. The agent sets \texttt{stop\_reason = "text\_response"} and breaks.
 Other exit conditions: repeated tool calls ($\geq 3\times$) or \texttt{max\_iterations}.
 
-\subsection{System Prompt (Preselection Style)}
+\newpage
+\subsection{System Prompt (Preselection)}
 
 The system prompt is assembled from composable sections selected by \texttt{prompt\_style}
 in the task YAML. Below is the preselection style used in experiments:
@@ -167,18 +168,7 @@ effective_sizes to determine the optimal mix ratio.
 Total samples must fit within the sample budget.
 \end{verbatim}
 
-\begin{figure}[ht]
-    \centering
-    % \includegraphics[width=0.8\linewidth]{2026-02-20/figures/autogen_single_agent_system.pdf}
-    \begin{tikzpicture}
-        \fill[gray!25] (0,0) rectangle (10,6);
-        \draw[gray!45, line width=1.5pt] (0,0) -- (10,6);
-        \draw[gray!45, line width=1.5pt] (0,6) -- (10,0);
-        \node at (5,3) {\textbf{\Large AutoGen Single Agent System Design}};
-    \end{tikzpicture}
-    \caption{AutoGen single agent system design}
-    \label{fig:autogen-single-agent}
-\end{figure}
+
 
 
 
