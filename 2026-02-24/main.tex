@@ -13,6 +13,7 @@
 %% SECTION 1: DATA AGENT EXPERIMENTS
 %% ============================================================
 
+\newpage
 \section{DataAgent Experiments (gpt-oss-120b)}
 
 Feiyang and Hanze provided the initial tool implementations and the FineVision5 (LLaVA) datasets to test on.
@@ -84,6 +85,7 @@ These constraints are precisely what the baselines lack (see Section~\ref{sec:ba
 %% SECTION 2: CODING AGENT BASELINES
 %% ============================================================
 
+\newpage
 \section{Coding Agent Baselines}
 \label{sec:baselines}
 
@@ -186,132 +188,29 @@ CoSyn\_400k\_chart     & 116,814 & 116,143 & 671 aspect \\
 %% SECTION 3: LOG ANALYSIS
 %% ============================================================
 
+\newpage
 \section{Log Analysis}
 
-\subsection{Exploration Tax}
+Three patterns emerged from the JSONL logs:
 
-Both coding agents spent significant early turns on pure environmental discovery (filesystem
-layout, package availability, Python binary location, schema introspection) before producing
-any data insight.
-
-\begin{table}[H]
-\centering
-\caption{Exploration tax: turns spent on environment discovery before first data insight.
-Claude references are to \texttt{claude-opus-4-6.txt};
-Codex references are to \texttt{codex-gpt-5.3.txt} (medium run, same boilerplate errors at xhigh).}
-\label{tab:exploration-tax}
-\begin{tabular}{p{5cm} l l}
-\toprule
-\textbf{Event} & \textbf{Claude} & \textbf{Codex} \\
-\midrule
-First \texttt{ls} to discover data layout
-    & L18 & L6 \\
-\texttt{pip list} / package check
-    & L29 & --- \\
-\texttt{python: command not found}
-    & L80 & L117 \\
-Permission denied (\texttt{EACCES})
-    & L53 & --- \\
-\texttt{AttributeError}: images is a list
-    & L94--96 & --- (handled defensively) \\
-Read-only filesystem error
-    & --- & L215 \\
-\midrule
-\textbf{Turns before first useful profile}
-    & $\sim$10 & $\sim$8 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\noindent Both agents independently hit \texttt{python: command not found}
-(Claude L80, Codex L117) and had to discover that the Docker image only provides
-\texttt{python3}.
-Claude additionally crashed on \texttt{images} being \texttt{List(Image)} not a single \texttt{Image}
-(L94: ``\texttt{AttributeError: 'list' object has no attribute 'size'}''),
-requiring a script rewrite.
-Codex hit a read-only filesystem error when \texttt{datasets} tried to write a cache file into the
-mounted data directory (L215: ``\texttt{OSError: Read-only file system}'').
-
-\textbf{DataAgent comparison:} The curation agent's \texttt{SessionContext} already knows the dataset
-names, the \texttt{DatasetStore} knows the schema (\texttt{images} is \texttt{List(Image)}),
-and \texttt{profile\_datasets} handles column types correctly on the first call.
-Zero turns are spent on environmental discovery.
-
-\subsection{No Principled Differentiation}
-
-Neither agent attempted to research how dataset composition affects VLM benchmark performance.
-Both had unrestricted internet access (Claude has \texttt{WebSearch}; Codex runs in a network-enabled
-container), yet \textbf{neither agent performed a single web search} to inform its allocation strategy.
-
-Instead, both improvised quality-weighted formulas from scratch:
-
-\begin{table}[H]
-\centering
-\caption{Improvised quality formulas by agent (log citations)}
-\label{tab:quality-formulas}
-\begin{tabular}{p{2.5cm} p{5.5cm} l}
-\toprule
-\textbf{Agent} & \textbf{Formula} & \textbf{Log ref} \\
-\midrule
-Claude
-    & $0.30 \cdot \text{relevance} + 0.30 \cdot \text{img\_corr} + 0.25 \cdot \text{vis\_dep} + 0.15 \cdot \text{formatting}$,\newline
-      then per-dataset multipliers: LLaVA $\times$1.2, CoSyn $\times$1.3, ocrvqa $\times$1.1, vqav2 $\times$0.8
-    & L863 \\
-\addlinespace
-Codex (xhigh)
-    & $0.45 \cdot \text{retention} + 0.55 \cdot \text{relevance\_prior}$, quality-weighted allocation (near-uniform result)
-    & run.jsonl \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\noindent Both formulas were invented ad hoc with no empirical grounding.
-Claude's benchmark multipliers (``CoSyn $\times$1.3 for MathVista coverage'') are pure LLM intuition;
-there is no evidence in the logs that it consulted any literature or data to justify these weights.
-Codex at \texttt{xhigh} reasoning effort converged to a near-uniform
-25/25/25/23 split, while Claude was moderately more opinionated (30/29/23/18).
-The two agents agree on captcha exclusion but diverge on everything else, with no principled
-basis for either allocation.
-
-\textbf{DataAgent comparison:} The curation agent's tools encode domain-aware defaults.
-\texttt{compute\_mix\_ratio} implements a documented formula (\texttt{quality $\times$ sqrt(effective\_size)})
-that the orchestrator can override via \texttt{task\_overrides} for controlled ablation.
-The agent's job is strategic reasoning about \emph{which} quality signals matter, not
-reinventing the allocation formula each run.
-
-\subsection{Reproducibility and Ensembling}
-
-Each baseline run produces \textbf{one recipe from one agent}.
-Even with only two runs, the divergence is substantial:
-
-\begin{table}[H]
-\centering
-\caption{Per-dataset allocation divergence between Claude and Codex xhigh}
-\label{tab:allocation-variance}
-\begin{tabular}{lrrr}
-\toprule
-\textbf{Dataset} & \textbf{Claude \%} & \textbf{Codex \%} & \textbf{$\Delta$} \\
-\midrule
-LLaVA\_Instruct\_150K  & 30.4 & 25.9 & 4.5pp \\
-CoSyn\_400k\_chart      & 28.8 & 25.5 & 3.3pp \\
-ocrvqa                  & 23.0 & 25.3 & 2.3pp \\
-vqav2                   & 17.9 & 23.4 & 5.5pp \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\noindent The vqav2 allocation differs by 5.5 percentage points (5,500 samples)
-with no principled basis for choosing one allocation over the other.
-
-\textbf{DataAgent comparison:} The orchestrator can run $N$ agents in parallel (e.g., 5 agents $\times$
-10 iterations $\times$ multiple sample sizes), extract a \texttt{DataRecipe} from each, and compute
-consensus statistics via \texttt{compute\_stats()}.
-This ensemble approach absorbs the variance that makes any single baseline run unreliable.
+\begin{enumerate}
+    \item \textbf{Exploration tax.} Both agents spent 8--10 turns on environment discovery
+        (\texttt{python} not found, schema crashes, permission errors, read-only FS)
+        before producing any data insight. The DataAgent's \texttt{SessionContext} eliminates this entirely.
+    \item \textbf{No principled differentiation.} Despite having web access, neither agent
+        performed a single search to inform its allocation. Both invented ad-hoc quality formulas:
+        Claude used rating-column weights with benchmark multipliers (L863);
+        Codex used $0.45 \cdot \text{retention} + 0.55 \cdot \text{relevance\_prior}$ (run.jsonl).
+    \item \textbf{Single-shot variance.} Allocations diverge by up to 5.5pp per dataset
+        (vqav2: 17.9\% vs 23.4\%) with no basis for choosing one over the other.
+        The DataAgent's orchestrator ensemble absorbs this via \texttt{compute\_stats()}.
+\end{enumerate}
 
 %% ============================================================
 %% SECTION 4: DISCUSSION
 %% ============================================================
 
+\newpage
 \section{Discussion}
 
 \subsection{Strategy Comparison}
