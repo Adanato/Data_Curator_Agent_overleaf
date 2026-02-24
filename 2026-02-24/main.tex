@@ -1,0 +1,218 @@
+\meetingheader
+    {Feb 24, 2026}
+    {baseline-runs}
+    {\meetinglinks{}}
+    {\begin{itemize}
+        \item One-shot baseline evaluation: Claude Code (Opus 4.6) vs OpenAI Codex (gpt-5.3)
+        \item Clean Docker sandbox---no access to curation agent codebase
+        \item Task: curate 100k VLM fine-tuning samples from FineVision5
+    \end{itemize}}
+    {Dockerfiles hardened to remove codebase leakage after first unfair run.}
+
+\section{Experimental Setup}
+
+Docker containers isolate each coding agent from helios4.
+The containers mount the FineVision5 datasets \textbf{read-only} and provide an
+empty workspace---no access to our curation agent codebase.
+Pre-installed packages: \texttt{datasets}, \texttt{pyarrow}, \texttt{numpy}, \texttt{Pillow}, \texttt{uv}.
+Both agents received the same one-shot guided prompt and had to write their own pipeline from scratch.
+
+Claude Code was limited to 50 agentic turns via \texttt{-{}-max-turns 50}.
+Codex was run similarly with \texttt{-{}-full-auto} (its architecture completes
+everything in a single turn, so no turn cap applies).
+
+\begin{verbatim}
+# Claude
+claude -p "$(cat task_prompt.txt)" \
+  --dangerously-skip-permissions \
+  --max-turns 50 \
+  --output-format stream-json \
+  2>&1 | tee run.jsonl
+
+# Codex
+codex exec "$(cat task_prompt.txt)" \
+  --full-auto \
+  -m gpt-5.3-codex \
+  --json \
+  2>&1 | tee run.jsonl
+\end{verbatim}
+
+\noindent The exact system prompt given to both agents:
+
+\begin{verbatim}
+You are a data curation agent. Your job is to prepare a
+high-quality fine-tuning dataset.
+
+## Task
+Curate visual instruction-tuning data for
+Qwen2.5-VL-7B-Instruct to maximize performance on MMStar,
+OCRBench, MathVista, HallusionBench, MMVet, and MMMU.
+
+## Target Model
+Qwen/Qwen2.5-VL-7B-Instruct
+
+## Sample Budget
+100000 total samples
+
+## Available Datasets
+HuggingFace Arrow format on disk at
+/helios-storage/helios4-data/fyk/mmds/FineVision5/:
+- LLaVA_Instruct_150K
+- vqav2
+- ocrvqa
+- captcha
+- CoSyn_400k_chart
+
+Each dataset has an "images" column (list of PIL images) and
+a "texts" column (list of {user, assistant} dicts).
+
+## Pipeline
+1. Profile - Load and inspect each dataset.
+2. Image Filter - Remove rows with missing/corrupt images,
+   min side < 200px, or aspect ratio > 3:1.
+3. Assess - Assign a quality score (0-1) per dataset.
+4. Compute Mix - Quality-weighted ratios. Total <= 100000.
+5. Mix - Sample and concatenate into one combined dataset.
+6. Submit - Save and print JSON summary.
+
+## Output
+Save to /workspace/output/benchmark/dataset/ in Arrow format.
+Print JSON summary: datasets, ratios, sample_counts, total,
+reasoning.
+\end{verbatim}
+
+\noindent Full JSONL logs are in \texttt{2026-02-24/logs/}.
+
+\section{Results}
+
+\subsection{Runtime and Resource Usage}
+
+\begin{table}[H]
+\centering
+\caption{Baseline agent runtime comparison}
+\label{tab:baseline-runtime}
+\begin{tabular}{lcc}
+\toprule
+                        & \textbf{Claude Code} & \textbf{OpenAI Codex} \\
+\midrule
+Model                   & claude-opus-4-6     & gpt-5.3-codex \\
+CLI version             & 2.1.50              & 0.104.0 \\
+Wall time               & 44.9 min            & 62.5 min \\
+API turns               & 51                  & 1 \\
+Shell commands          & $\sim$40            & 26 \\
+Cost                    & \$2.16              & --- \\
+Exit code               & 0                   & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent Claude used 51 agentic turns (one over the 50-turn cap---it finishes the active turn).
+Codex completed the entire task in a single turn with 26 shell commands, running them
+in parallel where possible. Codex hit three sandbox failures (multiprocessing semaphore
+permissions, read-only filesystem cache, shuffle temp-file) and self-corrected each time.
+
+\subsection{Dataset Mix}
+
+\begin{table}[H]
+\centering
+\caption{Final 100k sample allocations by agent}
+\label{tab:baseline-mix}
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Dataset} & \multicolumn{2}{c}{\textbf{Claude}} & \multicolumn{2}{c}{\textbf{Codex}} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5}
+                        & Samples & Ratio & Samples & Ratio \\
+\midrule
+LLaVA\_Instruct\_150K  & 30,350  & 30.4\% & 28,402  & 28.4\% \\
+CoSyn\_400k\_chart      & 28,770  & 28.8\% & 24,448  & 24.4\% \\
+ocrvqa                  & 22,989  & 23.0\% & 28,090  & 28.1\% \\
+vqav2                   & 17,891  & 17.9\% & 19,060  & 19.1\% \\
+captcha                 & 0       & 0\%    & 0       & 0\%    \\
+\midrule
+\textbf{Total}          & \textbf{100,000} & & \textbf{100,000} & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Image Filter Statistics}
+
+Both agents applied the same filter thresholds (\texttt{min\_side}$\geq$200px, aspect ratio$\leq$3:1).
+All 113k captcha images were rejected (150$\times$40px).
+
+\begin{table}[H]
+\centering
+\caption{Image filter pass rates (Claude's full-scan numbers)}
+\label{tab:baseline-filter}
+\begin{tabular}{lrrl}
+\toprule
+\textbf{Dataset} & \textbf{Total} & \textbf{Valid} & \textbf{Rejected} \\
+\midrule
+LLaVA\_Instruct\_150K & 157,710 & 157,292 & 367 small, 51 aspect \\
+vqav2                  &  82,772 &  82,557 & 186 small, 29 aspect \\
+ocrvqa                 & 165,746 & 163,078 & 2,668 small \\
+captcha                & 113,062 &       0 & 113,062 small \\
+CoSyn\_400k\_chart     & 116,814 & 116,143 & 671 aspect \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Discussion}
+
+\subsection{Key Differences}
+
+\begin{table}[H]
+\centering
+\caption{Agent strategy comparison}
+\label{tab:baseline-strategies}
+\begin{tabular}{p{2.8cm} p{5.5cm} p{5.5cm}}
+\toprule
+                        & \textbf{Claude (Opus 4.6)} & \textbf{Codex (gpt-5.3)} \\
+\midrule
+Top allocation
+    & CoSyn 28.8\% --- benchmark-relevance multipliers (chart reasoning for MathVista/MMMU)
+    & ocrvqa 28.1\% --- \texttt{quality * sqrt(rows) * valid\_ratio\_est} \\
+\addlinespace
+Quality scoring
+    & Rating columns (relevance, image\_correspondence, visual\_dependency, formatting) with per-benchmark multipliers
+    & \texttt{0.45*task\_fit + 0.35*rating\_score + 0.20*valid\_ratio\_est}; pilot-based validity (3000 samples/dataset) \\
+\addlinespace
+Sample selection
+    & Top-$k$ by composite quality score per dataset
+    & Random sampling with strict per-row image validation \\
+\addlinespace
+Output columns
+    & \texttt{images}, \texttt{texts} only --- provenance unverifiable
+    & All metadata preserved including \texttt{source} --- independently verifiable \\
+\addlinespace
+Turns / commands
+    & 51 turns, $\sim$40 commands (sequential)
+    & 1 turn, 26 commands (parallel) \\
+\addlinespace
+Error recovery
+    & Sequential iteration avoids most sandbox issues
+    & 3 self-corrected failures (multiprocessing semaphore, read-only cache, shuffle temp-file) \\
+\addlinespace
+Image parsing
+    & \multicolumn{2}{c}{Both independently discovered raw Arrow byte parsing ($\sim$1000$\times$ faster than PIL)} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent \textit{Note:} An earlier run with \texttt{COPY .\ /workspace} allowed Claude
+to read all tool source code. Fixed by removing the copy; results above are from the clean run.
+
+\keyfindings{
+    \item \textbf{Both agents successfully completed the task} from a clean environment with
+        no access to curation tools, producing valid 100k-sample Arrow datasets.
+    \item \textbf{Comparable wall time}: Claude 44.9 min (51 turns), Codex 62.5 min (1 turn, 26 commands).
+    \item \textbf{Mix ratios are close}: LLaVA 28--30\%, ocrvqa 23--28\%, CoSyn 24--29\%,
+        vqav2 18--19\%, captcha 0\%. Main divergence is CoSyn vs ocrvqa emphasis.
+    \item \textbf{Output schema matters}: future runs should require \texttt{source} column preservation
+        for auditability (Claude dropped it).
+}
+
+\meetingtasks{
+    \item \todo{Fine-tune Qwen2.5-VL-7B on both mixes and compare benchmark scores}
+    \item \todo{Add \texttt{source} column requirement to task prompt}
+    \item \todo{Run our guided agent (with hardcoded tools) on same task for 3-way comparison}
+}
