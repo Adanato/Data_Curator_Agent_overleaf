@@ -1,0 +1,440 @@
+\meetingheader
+    {Feb 27, 2026}
+    {7b8a7c6}
+    {\meetinglinks{}}
+    {\begin{itemize}
+        \item Policy abstraction: Agent = Policy + Env
+        \item LLaVA 1.5 train $\to$ eval pipeline working end-to-end (MMVet: 30.96)
+        \item Validated architecture against Agent-R1, AgentGym-RL, NeMo Gym
+        \item Dependency injection, dataset versioning, episodic memory foundations
+    \end{itemize}}
+    {}
+
+\begin{figure}[H]
+\centering
+% \includegraphics[width=\linewidth]{2026-02-27/fig_architecture}
+\fbox{\parbox{0.95\linewidth}{\centering\vspace{4cm}\textbf{[PLACEHOLDER: System architecture diagram]}\\[6pt]
+Policy $\xrightarrow{\text{act()}}$ Agent Loop $\xrightarrow{\text{step()}}$ CurationEnv $\xrightarrow{\text{resolve + call}}$ Tools\\[4pt]
+Tools $\xrightarrow{\text{StepResult}}$ CurationEnv $\xrightarrow{\text{obs}}$ Agent Loop $\xrightarrow{\text{observe()}}$ Policy\\[8pt]
+Env owns: DatasetStore (version stack) $\mid$ ArtifactRegistry $\mid$ Pointers\\
+Policy owns: message history $\mid$ token counters $\mid$ memory hooks\vspace{4cm}}}
+\caption{System design. Agent = Policy + Env, inspired by Agent-R1~\cite{chengAgentR1TrainingPowerful2025} MDP formalization
+and LangChain declarative state injection. Policy decides, env executes, loop orchestrates.}
+\label{fig:architecture}
+\end{figure}
+
+%% ============================================================
+%% SECTION 1: ARCHITECTURE
+%% ============================================================
+
+\newpage
+\section{Architecture: Agent = Policy + Env}
+
+Merged \texttt{SASAgent} and \texttt{RLSASAgent} into a single \texttt{Agent} class.
+
+\begin{itemize}
+    \item \textbf{Policy} --- decides which tool to call. Owns LLM client, message history, token counters.
+    \item \textbf{Env} (\texttt{CurationEnv}, Gymnasium) --- executes tool calls as state transitions. Owns datasets, artifacts, rewards.
+    \item \textbf{Agent} --- orchestration loop. Owns logging, telemetry, episode lifecycle.
+\end{itemize}
+
+\noindent All tool execution goes through the env. Policy never calls tools directly $\Rightarrow$ swappable (LLM, random, scripted, learned).
+
+\subsection{Agent Loop}
+
+\begin{verbatim}
+policy.reset(system_prompt, initial_obs, tools)
+obs, info = env.reset()
+
+for step in range(max_iterations):
+    result = policy.act()          # LLM decides
+
+    if result.text_response:
+        policy.observe_text_nudge("Call a tool.")
+        continue
+
+    for action in result.actions:
+        obs, reward, done, trunc, info = env.step(action)
+        policy.observe(obs)
+
+        if done or trunc:
+            break
+\end{verbatim}
+
+%% ============================================================
+%% SECTION 2: TOOL DEPENDENCY INJECTION
+%% ============================================================
+
+\newpage
+\section{Tool Dependency Injection}
+\label{sec:injection}
+
+From Feb~24: tools need env state (datasets, column names, statistics) but coupling tools to the env makes them untestable and pollutes the LLM schema.
+
+\begin{itemize}
+    \item Tools declare dependencies via \texttt{Annotated} type hints
+    \item \texttt{make\_tools()} strips injected params from LLM-facing schema
+    \item Env resolves each marker at dispatch time
+    \item Tools are pure functions --- no imports from env, no globals
+\end{itemize}
+
+\begin{verbatim}
+def vlm_filter(
+    # LLM-visible
+    dataset_name: Annotated[str, "Dataset to filter"],
+    min_side: Annotated[int, "Min image side (px)"] = 200,
+
+    # Injected by env (hidden from LLM)
+    dataset: Annotated[Any, PerDataset("working")] = None,
+    image_column: Annotated[str, PerDataset("image_column")] = "",
+    sample_budget: Annotated[int, FromEnv("sample_budget")] = 0,
+) -> StepResult:
+\end{verbatim}
+
+\begin{figure}[H]
+\centering
+% \includegraphics[width=0.85\linewidth]{2026-02-27/fig_injection}
+\fbox{\parbox{0.85\linewidth}{\centering\vspace{3cm}\textbf{[PLACEHOLDER: Injection flow diagram]}\\
+Tool function signature $\to$ make\_tools() introspection $\to$\\
+split into: LLM schema (dataset\_name, min\_side) vs.\ injected (dataset, image\_column)\\
+At dispatch: env resolves injected params $\to$ merged kwargs $\to$ call tool\vspace{3cm}}}
+\caption{Dependency injection splits tool parameters into LLM-visible (schema) and env-resolved (injected). The LLM never sees internal wiring.}
+\label{fig:injection}
+\end{figure}
+
+\noindent Four marker types:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Marker} & \textbf{Resolves to} & \textbf{Example} \\
+\midrule
+\texttt{FromEnv(attr)} & \texttt{env.\textless attr\textgreater} & \texttt{sample\_budget}, \texttt{run\_dir} \\
+\texttt{PerDataset(key)} & resolver[key](dataset\_name) & working copy, text column, stats \\
+\texttt{AllDatasets(key)} & \{name: resolver[key]\} & all working copies for mixing \\
+\texttt{FromArtifact(...)} & registry lookup & adapter path from trained model \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textbf{Implication: infinite tool space.}
+Data curation has an unbounded number of possible transformations---we cannot hand-code them all.
+The injection contract solves this: any function that accepts a \texttt{dataset\_name}, annotates \texttt{PerDataset("working")}, and returns a \texttt{StepResult} is a valid tool.
+This is a three-annotation contract, not a framework.
+
+We provide a ground-truth tool set---the \emph{basis vectors} of data curation derived from published techniques---and encode them into the resolver mapping.
+The agent explores these, learns what works for a given task and dataset, and when existing tools are insufficient, delegates to a code subagent to synthesize new transformations from the literature.
+A search subagent reads a curation paper (e.g., a novel deduplication method, a curriculum filtering heuristic), a code subagent implements it as a plain Python function with the three injection annotations, the function is validated (signature check + dry-run on a slice), and it is immediately available to the curation agent as a first-class tool.
+
+The compounding effect is significant: each episode the agent runs produces signal about which tools are effective, that signal informs which papers the search agent retrieves, those papers produce new tools, and those tools unlock curation strategies that were previously inaccessible.
+The tool space grows with the literature and with the agent's own experience---not with our engineering time.
+This is the mechanism by which a data curation agent can systematically outperform any fixed pipeline: it is not limited to the transformations we thought to implement.
+
+%% ============================================================
+%% SECTION 3: ACTION SPACE
+%% ============================================================
+
+\newpage
+\section{Action Space}
+\label{sec:action-space}
+
+From Feb~24: 15+ tools $\times$ 3--8 raw params each $\Rightarrow$ \texttt{gpt-oss-120b} hallucinated args, skipped tools, terminated early.
+
+Injection collapses this.
+The LLM's \emph{effective} action space is an artifact ID (dataset name or model ID) plus optional knobs with defaults:
+
+\begin{table}[H]
+\centering
+\caption{LLM-visible parameters per tool (injected params hidden). Most tools require only an artifact ID.}
+\label{tab:effective-action-space}
+\begin{tabular}{lcp{7cm}}
+\toprule
+\textbf{Tool} & \textbf{LLM params} & \textbf{What the LLM actually decides} \\
+\midrule
+\texttt{vlm\_filter} & 1 & \texttt{dataset\_name} \\
+\texttt{integrity\_check} & 1 & \texttt{dataset\_name} \\
+\texttt{load\_dataset} & 1 & \texttt{dataset\_name} \\
+\texttt{rollback} & 1+1 & \texttt{dataset\_name}, \texttt{steps} (default 1) \\
+\texttt{dedup\_check} & 1+1 & \texttt{dataset\_name}, \texttt{method} \\
+\texttt{explore\_dataset} & 1+2 & \texttt{dataset\_name}, \texttt{method}, \texttt{column} \\
+\texttt{submit\_eval} & 1+1 & \texttt{model\_id}, \texttt{model\_family} \\
+\texttt{submit\_finetune} & 1+1 & \texttt{dataset\_name}, \texttt{output\_dir} \\
+\texttt{profile\_datasets} & 0+2 & \texttt{sample\_n}, \texttt{seed} (both have defaults) \\
+\texttt{think} & 1 & \texttt{reasoning} (free text) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent Tools like \texttt{quality\_filter}, \texttt{transform\_dataset}, and \texttt{vlm\_modify} expose more knobs (thresholds, counts, prompts) but every param has a default. The LLM \emph{can} tune them; it doesn't \emph{have} to.
+
+\begin{itemize}
+    \item Actions are JSON: \texttt{\{"tool": "vlm\_filter", "args": \{"dataset\_name": "vqav2"\}\}}
+    \item Phase grouping: preselection $\to$ selection $\to$ postselection + utilities
+    \item Task YAML restricts available tools per experiment
+    \item State header in every observation $\Rightarrow$ LLM knows what's done and what remains
+    \item Malformed JSON / unknown tool $\Rightarrow$ structured error obs, not crash
+    \item Future: progressively expose parameter control as agent demonstrates competence
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+% \includegraphics[width=0.85\linewidth]{2026-02-27/fig_action_space}
+\fbox{\parbox{0.85\linewidth}{\centering\vspace{3cm}\textbf{[PLACEHOLDER: Action space diagram]}\\
+Full signature (8 params) $\xrightarrow{\text{injection}}$ LLM schema (1--2 params)\\[4pt]
+Show side-by-side: raw \texttt{vlm\_filter} signature vs.\ LLM-facing schema\\
+Artifact ID as the primary action dimension, optional knobs as secondary\vspace{3cm}}}
+\caption{Injection collapses the action space. The LLM selects artifact IDs; the env resolves everything else.}
+\label{fig:action-space}
+\end{figure}
+
+%% ============================================================
+%% SECTION 4: STATE MANAGEMENT
+%% ============================================================
+
+\newpage
+\section{State Management}
+\label{sec:state}
+
+Three categories of mutable state, all surfaced to the LLM via a state header on every observation:
+
+\begin{itemize}
+    \item \textbf{DatasetStore} --- lazy-loaded HF datasets, version stack per dataset, partial/full loading
+    \item \textbf{ArtifactRegistry} --- monotonic versioning per (kind, id). Kinds: dataset, recipe, model, eval
+    \item \textbf{Pointers} --- \texttt{active\_recipe}, \texttt{active\_model}, \texttt{active\_eval}, \texttt{active\_dataset:*}
+\end{itemize}
+
+\noindent Tools don't mutate state directly. They return \texttt{StepResult} declaring side-effects:
+
+\begin{verbatim}
+return StepResult(
+    payload=json.dumps({...}),                          # LLM sees this
+    created=[ArtifactRef("recipe", "mix", 0)],          # register
+    updates={"active_recipe": ArtifactRef(...)},        # pointer commit
+    dataset_updates={"vqav2": DatasetUpdate(ds, ...)},  # version push
+    metrics={"rows_removed": 1200},                     # telemetry
+)
+\end{verbatim}
+
+\noindent Env processes in \texttt{\_commit\_step\_result()}: register artifacts $\to$ assign versions $\to$ update pointers $\to$ push dataset version. Explicit, auditable, replayable.
+
+\subsection{State Header (every observation)}
+
+\begin{verbatim}
+{
+  "state": {
+    "active_datasets": {
+      "vqav2": "dataset:vqav2@v3 (45200 rows, v3)",
+      "ocrvqa": "dataset:ocrvqa@v1 (80000 rows, v1)"
+    },
+    "active_recipe": "recipe:mix@v2",
+    "active_model": "model:llava-1.5@v1",
+    "active_eval": null
+  },
+  "budget": {
+    "steps_remaining": 38,
+    "sample_budget": 100000
+  }
+}
+\end{verbatim}
+
+%% ============================================================
+%% SECTION 5: DATASET VERSIONING
+%% ============================================================
+
+\newpage
+\section{Dataset Versioning and Rollback}
+\label{sec:versioning}
+
+Previously: every mutation overwrote the working copy. Only undo was \texttt{reset} (discard all). Agent couldn't undo one bad filter without losing ten good ones.
+
+Now: version stack per dataset backed by PyArrow zero-copy semantics.
+
+\begin{itemize}
+    \item \texttt{set\_working(name, ds, info, step)} --- push \texttt{VersionEntry} onto stack
+    \item \texttt{get\_working(name)} --- return top of stack (or original)
+    \item \texttt{rollback(name, steps)} --- pop $N$ entries
+    \item \texttt{reset(name)} --- clear stack entirely
+    \item \texttt{version\_summary(name)} --- \texttt{[\{version, rows, tool, step\}, ...]}
+\end{itemize}
+
+\noindent Memory cost per version:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Mutation} & \textbf{Cost} \\
+\midrule
+\texttt{filter()} / \texttt{select()} & Zero-copy index view ($\sim$KB) \\
+\texttt{set\_column()} (vlm\_modify) & Modified column only ($\sim$100\,MB text, images shared) \\
+\texttt{concatenate()} / \texttt{map()} & Full copy \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent Most curation ops are filters $\Rightarrow$ essentially free.
+\texttt{vlm\_modify} rewritten: \texttt{from\_list(all\_rows)} $\to$ \texttt{pa.Table.set\_column()} --- 50\,GB $\to$ 100\,MB.
+
+LLM-facing: \texttt{\{"tool": "rollback", "args": \{"dataset\_name": "vqav2", "steps": 1\}\}}
+
+%% ============================================================
+%% SECTION 6: EPISODIC MEMORY
+%% ============================================================
+
+\newpage
+\section{Episodic Memory}
+\label{sec:memory}
+
+Agent runs $E$ episodes per task. Between episodes: env resets (fresh state), policy persists (message history carries forward).
+
+\texttt{format\_episode\_memory()} compresses prior episode into system prompt:
+
+\begin{verbatim}
+## Episode 1
+- Recipe: manual, 100000 total
+  - vqav2: 30% (30k), ocrvqa: 25% (25k), ...
+- Actions: profile -> vlm_filter -> compute_mix -> vlm_mix
+- Eval: MMStar=45.2, OCRBench=52.3
+- Reward: 48.5
+- Outcome: terminated (eval completed)
+\end{verbatim}
+
+\noindent Policy hooks for future memory architectures:
+
+\begin{verbatim}
+def on_episode_start(self, context: dict) -> None: ...
+def on_episode_end(self, context: dict) -> None: ...
+def on_step_end(self, step: int, result: PolicyResult) -> None: ...
+\end{verbatim}
+
+\begin{itemize}
+    \item \textbf{Working memory} (\texttt{on\_step\_end}) --- intra-episode scratchpad
+    \item \textbf{Episodic memory} (\texttt{on\_episode\_end}) --- structured outcome storage, not just text
+    \item \textbf{Semantic memory} (future) --- embed past decisions for retrieval
+\end{itemize}
+
+%% ============================================================
+%% SECTION 7: OBSERVATION FORMAT
+%% ============================================================
+
+\section{Observation Format}
+
+Every tool result wrapped with state header:
+
+\begin{verbatim}
+{
+  "type": "tool_result",
+  "state": {
+    "active_datasets": {"vqav2": "dataset:vqav2@v3 (45200 rows, v3)"},
+    "active_recipe": "recipe:mix@v2",
+    "active_model": null,
+    "active_eval": null
+  },
+  "budget": {"steps_remaining": 38, "sample_budget": 100000},
+  "tool": "vlm_filter",
+  "result": "{\"dataset\": \"vqav2\", \"kept\": 45200, \"removed\": 4800}"
+}
+\end{verbatim}
+
+\begin{itemize}
+    \item State header on \emph{every} obs, not just initial --- LLM always has current state
+    \item Intermediate reward $= 0$, terminal reward $= $ eval accuracy, errors $= -0.1$
+    \item Cumulative reward in \texttt{RunSummary} --- not yet used for optimization (RL gap)
+\end{itemize}
+
+%% ============================================================
+%% SECTION 8: LITERATURE VALIDATION
+%% ============================================================
+
+\newpage
+\section{Literature Validation}
+
+\begin{table}[H]
+\centering
+\caption{Architecture comparison with published agentic RL systems}
+\begin{tabular}{p{2.5cm} p{4cm} p{4cm} p{3cm}}
+\toprule
+\textbf{System} & \textbf{Policy} & \textbf{Env} & \textbf{Key Insight} \\
+\midrule
+Agent-R1
+    & LLM generates tool calls
+    & Multi-turn rollout env
+    & Action masking for credit assignment \\
+\addlinespace
+AgentGym-RL
+    & Decoupled Agent module
+    & EnvServer with \texttt{/step}, \texttt{/reset}
+    & Standardized HTTP protocol \\
+\addlinespace
+NeMo Gym
+    & Policy model
+    & Resource server (tools, code, search)
+    & Strict decision/execution split \\
+\addlinespace
+\textbf{Ours}
+    & \texttt{LLMPolicy}
+    & \texttt{CurationEnv} (Gymnasium)
+    & Injection markers + version stack \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%% ============================================================
+%% SECTION 9: EVAL PIPELINE
+%% ============================================================
+
+\newpage
+\section{LLaVA 1.5 Train $\to$ Eval Pipeline}
+
+End-to-end working: agent curates $\to$ \texttt{submit\_finetune} $\to$ \texttt{submit\_eval} $\to$ results parsed back.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lc}
+\toprule
+\textbf{Metric} & \textbf{Score} \\
+\midrule
+MMVet overall & 30.96 \\
+Samples evaluated & 218 \\
+Judge model & GPT-4-Turbo \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%% ============================================================
+%% SECTION 10: IMPLICATIONS
+%% ============================================================
+
+\section{What These Foundations Enable}
+
+\begin{itemize}
+    \item \textbf{RL Training} --- Gym env produces $(s_t, a_t, r_t, s_{t+1})$ at every step. \texttt{StepRecord} telemetry captures tool, result, tokens, wall time. Missing: training loop (GRPO / reward-weighted regression) + trajectory logger.
+
+    \item \textbf{Multi-Agent Systems} --- Tools are pure functions resolved by env, not bound to one agent. Multiple agents can share \texttt{CurationEnv}, coordinate via artifact registry and pointers. Injection could extend to \texttt{FromPeer}.
+
+    \item \textbf{Structured Memory} --- Policy hooks are the integration points. Version stack provides structured mutation history. Combined with registry event log: retrieve \emph{what was done, why, what happened next}.
+\end{itemize}
+
+%% ============================================================
+%% KEY FINDINGS + TASKS
+%% ============================================================
+
+\keyfindings{
+    \item \textbf{Injection markers solve the tool-environment coupling problem.}
+        Pure functions with declarative dependencies --- extensible, testable, schema-clean.
+    \item \textbf{Dataset versioning is near-free.}
+        Arrow zero-copy for filters, \texttt{set\_column()} for text rewrites.
+        Rollback without losing prior work.
+    \item \textbf{Full train $\to$ eval loop confirmed.}
+        LLaVA 1.5 fine-tuned by the agent: MMVet 30.96 (218 samples).
+    \item \textbf{Architecture aligns with Agent-R1, AgentGym-RL, NeMo Gym.}
+        Policy + Env + standardized trajectories --- ready for RL training when we add the training loop.
+}
+
+\meetingtasks{
+    \item Run full benchmark suite (MMStar, OCRBench, MathVista, HallusionBench, MMVet, MMMU) on agent-curated vs.\ uniform baselines.
+    \item Implement episodic memory via \texttt{on\_episode\_end} hooks --- structured storage, not just text summaries.
+    \item Add trajectory logging: persist $(s, a, r, s')$ tuples from agent loop for offline RL.
+    \item Multi-episode experiment: does memory actually improve episode 2 vs.\ episode 1?
+}
