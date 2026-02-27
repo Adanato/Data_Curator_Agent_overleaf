@@ -201,15 +201,11 @@ However, the quality score for captcha (0.45) is relatively low; a higher propor
 Given the sample budget of~50, we might target around 70\%~vqav2 (35~samples) and 30\%~captcha (15~samples) if captcha quality improves after filtering; otherwise keep around 80/20.
 \end{quote}
 
-\noindent \textbf{Note}: the agent reasons across both episodes -- identifies the upward trend, attributes it to diversity, and proposes 70/30 (or 80/20 if captcha quality stays low).
+\noindent \textbf{Note}: Episode 2 results were faked to test if the agent reasons across both episodes. We can see it identifies the upward trend, attributes it to diversity, and proposes 70/30 (or 80/20 if captcha quality stays low).
 At runtime it settles on 40/9 ($\approx$82/18), a different allocation than either prior episode.
 
 \paragraph{Key insight.} For the initial system prompts, \emph{memory must be embedded in the procedure as a numbered step}, not appended alongside it.
 This is a general prompt engineering finding: LLMs following step-by-step instructions will skip detached context sections.
-
-%% ============================================================
-%% SECTION 3: TOOL DEPENDENCY INJECTION + ACTION SPACE
-%% ============================================================
 
 \newpage
 \section{Tool Dependency Injection}
