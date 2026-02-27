@@ -7,116 +7,14 @@
         \meetinglink{AutoGen ListMemory Source}{https://microsoft.github.io/autogen/stable/\_modules/autogen\_core/memory/\_list\_memory.html}
     }}
     {\begin{itemize}
-        \item Full curate $\to$ train $\to$ eval pipeline end-to-end (MMVet: 31.88)
-        \item Episodic memory: injection placement matters -- must be a pipeline step, not a separate section
+        \item Full curate $\to$ train $\to$ eval pipeline end-to-end confirmation
+        \item Episodic memory: injection placement matters & must be a pipeline step, not a separate section
         \item Multi-episode trajectory reasoning: LLM identifies score trends and adapts mix ratios
         \item Dependency injection, dataset versioning, architecture validated against literature
     \end{itemize}}
     {}
 
-\begin{figure}[H]
-\centering
-% \includegraphics[width=\linewidth]{2026-02-27/fig_architecture}
-\fbox{\parbox{0.95\linewidth}{\centering\vspace{2cm}\textbf{[PLACEHOLDER: System architecture diagram -- box hierarchy below]}\vspace{2cm}}}
-\caption{System design. Agent = Policy + Env, inspired by Agent-R1~\cite{chengAgentR1TrainingPowerful2025} MDP formalization
-and LangChain declarative state injection. Policy decides, env executes, loop orchestrates.}
-\label{fig:architecture}
-\end{figure}
 
-%% -- Figure guide: object hierarchy for box diagram --
-%%
-%% AGENT (outer box -- orchestration loop)
-%% Owns: episode lifecycle, logging, telemetry
-%% Methods: run(task_path) -> list[RunSummary]
-%% |
-%% +------------------+-------------------+
-%% |                           |                            |
-%% POLICY                    CURATION ENV                 LOGGER
-%% (decides actions)         (executes actions)           (structlog)
-%% |                           |                            |
-%% |  Variants:                |                            +-- Rich console (stderr)
-%% |  - LLMPolicy             |                            +-- JSONL file (events.jsonl)
-%% |  - RandomPolicy          |
-%% |                           |
-%% +-- LLM Client             +-- DATASET STORE
-%% |   (ChatCompletion API)   |   (lazy loading + version stack)
-%% |                           |   |
-%% +-- Message History        |   +-- per dataset:
-%% |   (list[LLMMessage])     |       +-- original (cached Arrow table)
-%% |                           |       +-- version stack: [VersionEntry, ...]
-%% +-- Token Counters         |           each entry: {dataset, transform_info, step}
-%% |   (prompt + completion)  |           cost: filter = zero-copy index (~KB)
-%% |                           |                 set_column = text only (~100MB)
-%% +-- Repeat Detector        |                 concat/map = full copy
-%% |   (consecutive same-tool |
-%% |    detection)            +-- ARTIFACT REGISTRY
-%% |                           |   (monotonic versioning)
-%% +-- Memory Hooks           |   |
-%%     - on_episode_start()   |   +-- versions: (kind, id) -> version number
-%%     - on_episode_end()     |   |   kinds: dataset, recipe, model, eval_result
-%%     - on_step_end()        |   +-- metadata: (kind, id, version) -> dict
-%%                            |       e.g. model -> {adapter_path, method, ...}
-%%                            |
-%%                            +-- POINTERS
-%%                            |   (active_recipe, active_model, active_eval,
-%%                            |    active_dataset:*)
-%%                            |   Updated via StepResult.updates
-%%                            |
-%%                            +-- TOOLS (pure functions)
-%%                            |   |
-%%                            |   +-- schema_tools
-%%                            |   |   LLM-facing JSON schemas
-%%                            |   |   injected params stripped
-%%                            |   |
-%%                            |   +-- raw_fns
-%%                            |   |   full signatures for dispatch
-%%                            |   |
-%%                            |   +-- injected_cache
-%%                            |       param -> Injected marker mapping
-%%                            |       resolved at dispatch time
-%%                            |
-%%                            +-- TASK CONFIG
-%%                            |   task_description, target_model,
-%%                            |   sample_budget, datasets[], eval{},
-%%                            |   training_config{}
-%%                            |
-%%                            +-- STEP STATE
-%%                                step counter, cumulative reward,
-%%                                done / truncated flags
-%%
-%% -- Data flow (arrows between boxes) --
-%%
-%% 1. Policy.act()  -->  PolicyResult {actions[], thought, stop_reason}
-%%                        |
-%% 2. Agent loop extracts action JSON: {"tool": "...", "args": {...}}
-%%                        |
-%% 3. Env.step(action)  -->  resolve injected params from markers:
-%%                            FromEnv(attr)        -> getattr(env, attr)
-%%                            PerDataset(key)      -> resolver[key](dataset_id)
-%%                            AllDatasets(key)      -> {name: resolver[key]} for all
-%%                            FromArtifact(k,m,id) -> registry lookup
-%%                        |
-%% 4. Call raw_fn(llm_args + resolved_args)
-%%                        |
-%% 5. Tool returns StepResult or plain string
-%%                        |
-%% 6. Env._commit_step_result():
-%%      register artifacts -> assign versions -> update pointers -> push dataset version
-%%                        |
-%% 7. Env builds observation: state_header + tool_result JSON
-%%                        |
-%% 8. Policy.observe(observation)  -->  append to message history
-%%
-%% -- Episode lifecycle --
-%%
-%% Agent.run():
-%%   for episode in range(num_episodes):
-%%     env.reset()              -- fresh DatasetStore, registry, pointers
-%%     policy.reset(prompt, obs, tools)
-%%     for step in range(max_steps):
-%%       policy.act() -> env.step() -> policy.observe()
-%%     policy.on_episode_end()  -- compress episode into memory
-%%   policy.close()
 
 %% ============================================================
 %% SECTION 1: ARCHITECTURE
@@ -135,58 +33,15 @@ Merged \texttt{SASAgent} and \texttt{RLSASAgent} into a single \texttt{Agent} cl
 
 \noindent All tool execution goes through the env. Policy never calls tools directly $\Rightarrow$ swappable (LLM, random, scripted, learned).
 
-\begin{table}[H]
+\begin{figure}[H]
 \centering
-\small
-\caption{Architecture comparison with published agentic RL systems.}
-\label{tab:lit-comparison}
-\begin{tabular}{p{2.5cm} p{3.8cm} p{3.8cm} p{3cm}}
-\toprule
-\textbf{System} & \textbf{Policy} & \textbf{Env} & \textbf{Key Insight} \\
-\midrule
-Agent-R1
-    & LLM generates tool calls
-    & Multi-turn rollout env
-    & Action masking for credit assignment \\
-\addlinespace
-AgentGym-RL
-    & Decoupled Agent module
-    & EnvServer with \texttt{/step}, \texttt{/reset}
-    & Standardized HTTP protocol \\
-\addlinespace
-NeMo Gym
-    & Policy model
-    & Resource server (tools, code, search)
-    & Strict decision/execution split \\
-\addlinespace
-\textbf{Ours}
-    & \texttt{LLMPolicy}
-    & \texttt{CurationEnv} (Gymnasium)
-    & Injection markers + version stack \\
-\bottomrule
-\end{tabular}
-\end{table}
+% \includegraphics[width=\linewidth]{2026-02-27/fig_architecture}
+\fbox{\parbox{0.95\linewidth}{\centering\vspace{2cm}\textbf{[PLACEHOLDER: System architecture diagram -- box hierarchy below]}\vspace{2cm}}}
+\caption{System design. Agent = Policy + Env, inspired by Agent-R1~\cite{chengAgentR1TrainingPowerful2025} MDP formalization
+and LangChain declarative state injection. Policy decides, env executes, loop orchestrates.}
+\label{fig:architecture}
+\end{figure}
 
-\subsection{Agent Loop}
-
-\begin{verbatim}
-policy.reset(system_prompt, initial_obs, tools)
-obs, info = env.reset()
-
-for step in range(max_iterations):
-    result = policy.act()          # LLM decides
-
-    if result.text_response:
-        policy.observe_text_nudge("Call a tool.")
-        continue
-
-    for action in result.actions:
-        obs, reward, done, trunc, info = env.step(action)
-        policy.observe(obs)
-
-        if done or trunc:
-            break
-\end{verbatim}
 
 %% ============================================================
 %% SECTION 2: END-TO-END PIPELINE
@@ -271,8 +126,8 @@ However, three placements all failed -- the LLM repeated the identical strategy 
     {\small\ttfamily \fbox{``Analyze outcomes\ldots'' + Memory} $\to$ Role $\to$ Task $\to$ Env $\to$ Pipeline}
 \end{enumerate}
 
-\noindent Root cause: the prescriptive pipeline (``follow these~N stages in order'') dominates.
-The LLM instruction-follows the step-by-step procedure and never attends to a separate section.
+\noindent Root cause: LLM can only follow (``follow these~N stages in order'').
+The LLM instruction-follows the step-by-step procedure and never attends to a separate section whether this is specific to gpt-oss-120b is uncertain.
 
 \paragraph{Fix: memory as Step~1.}
 Inject the memory \emph{inside} the numbered pipeline as \textbf{Step~1: Review \& Plan}.
@@ -309,6 +164,7 @@ revised strategy explicitly.
 ### Step 9: Evaluate
 \end{verbatim}
 
+\newpage
 \noindent When reflection is a numbered step the LLM must execute, it engages fully.
 
 \paragraph{Example 1: one prior episode.}
@@ -348,7 +204,7 @@ Given the sample budget of~50, we might target around 70\%~vqav2 (35~samples) an
 \noindent \textbf{Note}: the agent reasons across both episodes -- identifies the upward trend, attributes it to diversity, and proposes 70/30 (or 80/20 if captcha quality stays low).
 At runtime it settles on 40/9 ($\approx$82/18), a different allocation than either prior episode.
 
-\paragraph{Key insight.} For prescriptive prompts, \emph{memory must be embedded in the procedure as a numbered step}, not appended alongside it.
+\paragraph{Key insight.} For the initial system prompts, \emph{memory must be embedded in the procedure as a numbered step}, not appended alongside it.
 This is a general prompt engineering finding: LLMs following step-by-step instructions will skip detached context sections.
 
 %% ============================================================
