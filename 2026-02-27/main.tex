@@ -307,38 +307,6 @@ vlm_filter(dataset_id="vqav2", dataset=<Arrow 50000 rows>, image_column="images"
 
 \noindent The LLM decides \emph{what} to do (which dataset). The env handles \emph{how} (data access, resolution).
 
-\subsection{Injection across tool types}
-
-The same pattern scales to cross-dataset and artifact-linked tools:
-
-\begin{table}[H]
-\centering
-\small
-\caption{Three tool types showing param reduction. ``Total'' = full signature; ``LLM sees'' = after stripping.}
-\label{tab:injection-examples}
-\begin{tabular}{lccll}
-\toprule
-\textbf{Tool} & \textbf{Total} & \textbf{LLM sees} & \textbf{Markers used} & \textbf{LLM action} \\
-\midrule
-\texttt{vlm\_filter}
-  & 3 & 1
-  & \texttt{PerDataset} $\times 2$
-  & \texttt{\{dataset\_id: "vqav2"\}} \\
-\addlinespace
-\texttt{profile\_datasets}
-  & 8 & 0+2
-  & \texttt{FromEnv} $\times 3$, \texttt{AllDatasets} $\times 3$
-  & \texttt{\{\}} (all defaulted) \\
-\addlinespace
-\texttt{submit\_eval}
-  & 5 & 1+1
-  & \texttt{FromArtifact}, \texttt{FromEnv} $\times 2$
-  & \texttt{\{model\_id: "ft-abc123"\}} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\noindent The LLM never handles filesystem paths or raw data. It passes symbolic IDs; the registry and dataset store resolve them.
 
 \subsection{Effective action space}
 \label{sec:action-space}
@@ -377,28 +345,6 @@ We extend this with domain-specific markers (\texttt{PerDataset}, \texttt{AllDat
 \newpage
 \section{State Management}
 \label{sec:state}
-
-Three categories of mutable state, all surfaced to the LLM via a state header on every observation:
-
-\begin{itemize}
-    \item \textbf{DatasetStore} -- lazy-loaded HF datasets with a version stack per dataset (partial/full loading, column filtering)
-    \item \textbf{ArtifactRegistry} -- monotonic versioning per (kind, id). Kinds: dataset, recipe, model, eval\_result
-    \item \textbf{Pointers} -- \texttt{active\_recipe}, \texttt{active\_model}, \texttt{active\_eval}, \texttt{active\_dataset:*}
-\end{itemize}
-
-\noindent Tools don't mutate state directly. They return \texttt{StepResult} declaring side-effects:
-
-\begin{verbatim}
-return StepResult(
-    payload=json.dumps({...}),                          # LLM sees this
-    created=[ArtifactRef("recipe", "mix", 0)],          # register
-    updates={"active_recipe": ArtifactRef(...)},        # pointer commit
-    dataset_updates={"vqav2": DatasetUpdate(ds, ...)},  # version push
-    metrics={"rows_removed": 1200},                     # telemetry
-)
-\end{verbatim}
-
-\noindent Env processes in \texttt{\_commit\_step\_result()}: register artifacts $\to$ assign versions $\to$ update pointers $\to$ push dataset version. Explicit, auditable, replayable.
 
 \subsection{Observation format}
 
@@ -459,11 +405,7 @@ vlm_mix(sample_counts={"vqav2": 40, "captcha": 10})
   vqav2+captcha     50 rows  (new combined dataset)
 \end{verbatim}
 
-    \noindent Each mutation is a zero-copy Arrow index view ($\sim$KB). Rollback pops the stack without recomputation. Remaining: register \texttt{rollback} in \texttt{TOOL\_META}, add to task YAML, validate.
-    \item \textbf{Multi-episode experiment} -- verify that episodic memory changes episode~2 strategy relative to episode~1 (3-episode runs, compare action traces).
-    \item \textbf{Full benchmark suite} -- run MMStar, OCRBench, MathVista, HallusionBench, MMVet, MMMU on agent-curated vs.\ uniform baselines.
-    \item \textbf{Trajectory logging} -- persist $(s, a, r, s')$ tuples for offline RL training (GRPO / reward-weighted regression).
-    \item \textbf{RandomPolicy baseline} -- no-LLM agent that calls tools uniformly at random; measure how much the LLM policy improves over chance.
+    \noindent Give me a bit of your time. The idea is that if the agent ,after exploring the action space of the best data curation tools from our toolset, notices that some tools are better than others it could call a code subagent to design a tool that it can call to easily pass the dataset\_id it wants to modify using the latest data curation papers as a knowledge source.
 \end{itemize}
 
 %% ============================================================
@@ -474,7 +416,7 @@ vlm_mix(sample_counts={"vqav2": 40, "captcha": 10})
     \item \textbf{Episodic memory placement determines whether LLMs use it.}
         Appended as a separate section (top or bottom): ignored.
         Injected as a numbered pipeline step: LLM reflects on prior scores and adapts strategy.
-    \item \textbf{Multi-episode trajectory reasoning works.}
+    \item \textbf{Multi-episode reasoning works.}
         Given two prior episodes (31.88 $\to$ 34.52), the LLM identifies the upward trend, attributes it to data diversity, and proposes a new mix ratio.
     \item \textbf{Full curate $\to$ train $\to$ eval loop working end-to-end.}
         LLaVA 1.5 fine-tuned by the agent: MMVet 31.88 (218 samples, GPT-4-Turbo judge).
@@ -484,8 +426,5 @@ vlm_mix(sample_counts={"vqav2": 40, "captcha": 10})
 
 \meetingtasks{
     \item Finish dataset versioning: register rollback tool, test end-to-end.
-    \item Run multi-episode experiment: verify memory changes episode~2 strategy.
-    \item Full benchmark suite on agent-curated vs.\ uniform baselines.
-    \item Add trajectory logging for offline RL.
-    \item RandomPolicy baseline comparison.
+    \item Test custom code generation. 
 }
