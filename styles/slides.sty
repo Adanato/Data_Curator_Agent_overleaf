@@ -1,0 +1,62 @@
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{styles/slides}[2026/03/09 Assertion-Evidence Slide Style]
+
+% --- Color Palette (matches meeting.sty) ---
+\definecolor{slideblue}{HTML}{2A74B9}
+\definecolor{slidegray}{HTML}{4A5568}
+\definecolor{successgreen}{HTML}{38A169}
+\definecolor{lightgray}{HTML}{F7FAFC}
+
+% --- Beamer Theme ---
+\usetheme{default}
+\usecolortheme{default}
+\setbeamercolor{frametitle}{fg=slideblue}
+\setbeamercolor{title}{fg=slideblue}
+\setbeamercolor{normal text}{fg=slidegray}
+\setbeamercolor{itemize item}{fg=slideblue}
+\setbeamercolor{enumerate item}{fg=slideblue}
+\setbeamerfont{frametitle}{size=\large,series=\bfseries}
+\setbeamerfont{title}{size=\Large,series=\bfseries}
+
+% Remove navigation clutter
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}[frame number]
+
+% --- Assertion-Evidence Frame ---
+% Usage: \aeframe{Sentence assertion as headline}{body content}
+% The headline IS the takeaway. The body is visual evidence.
+\newcommand{\aeframe}[2]{%
+  \begin{frame}
+    \frametitle{#1}
+    #2
+  \end{frame}
+}
+
+% --- Finding Frame (green accent) ---
+\newcommand{\findingframe}[2]{%
+  \begin{frame}
+    {\color{successgreen}\large\bfseries #1}
+    \vspace{0.5em}
+    #2
+  \end{frame}
+}
+
+% --- Tasks Frame ---
+\newcommand{\taskframe}[1]{%
+  \begin{frame}
+    \frametitle{Next Steps}
+    \begin{enumerate}
+      #1
+    \end{enumerate}
+  \end{frame}
+}
+
+% --- Suppress meeting.sty commands if included ---
+% This lets you \input the same content file without errors,
+% though you'll typically write slides separately.
+\providecommand{\meetingheader}[5]{}
+\providecommand{\meetinglinks}[1]{}
+\providecommand{\meetinglink}[2]{}
+\providecommand{\keyfindings}[1]{}
+\providecommand{\meetingtasks}[1]{}
+\providecommand{\todo}[1]{\textbf{#1}}

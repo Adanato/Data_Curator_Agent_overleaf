@@ -1,0 +1,60 @@
+\documentclass[aspectratio=169, 12pt]{beamer}
+
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{styles/slides}
+
+\title{Data Curation Agent}
+\subtitle{Mar 9, 2026}
+\author{Adam}
+\date{}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+%% ============================================================
+%% CONTEXT: What's the problem and where we left off
+%% ============================================================
+
+\aeframe{Coding agents waste 8--10 turns on environment discovery before producing data insights}{
+  % Recap slide — use a figure or table from last meeting if helpful
+  \begin{itemize}
+    \item Last meeting: baseline runs with Claude (Opus 4.6) and Codex (gpt-5.3)
+    \item Both completed the task but invented quality formulas with no empirical grounding
+    \item Neither performed web research despite having access
+  \end{itemize}
+  % TODO: replace bullets with a visual (e.g., the comparison table from 2026-02-24)
+}
+
+%% ============================================================
+%% THIS WEEK'S WORK
+%% ============================================================
+
+% \aeframe{Sentence assertion stating what you found}{
+%   % Figure, table, or diagram as evidence
+%   \centering
+%   % \includegraphics[width=0.8\linewidth]{figures/your_figure}
+% }
+
+%% ============================================================
+%% KEY FINDINGS
+%% ============================================================
+
+% \findingframe{One-sentence finding goes here}{
+%   Supporting evidence or brief explanation
+% }
+
+%% ============================================================
+%% NEXT STEPS
+%% ============================================================
+
+\taskframe{
+  \item Task 1
+  \item Task 2
+}
+
+\end{document}
