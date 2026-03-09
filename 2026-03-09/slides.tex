@@ -4,6 +4,8 @@
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{styles/slides}
+\hypersetup{colorlinks=true, linkcolor=slideblue, urlcolor=slideblue}
+\newcommand{\srclink}[2]{\href{#1}{\color{slideblue}\scriptsize #2}}
 
 \title{Data Curation Agent}
 \subtitle{Mar 9, 2026}
@@ -41,16 +43,16 @@
 \aeframe{Local Qwen3.5-27B judge matches GPT-4o within 1 point on all 6 benchmarks}{
   \centering
   \small
-  \begin{tabular}{lcc}
+  \begin{tabular}{lccl}
     \toprule
-    \textbf{Benchmark} & \textbf{Published} & \textbf{Ours (Qwen3.5 judge)} \\
+    \textbf{Benchmark} & \textbf{Published} & \textbf{Ours (Qwen3.5 judge)} & \textbf{Source} \\
     \midrule
-    MMStar & 30.4 & 30.4 \\
-    OCRBench & 317 & 317 \\
-    HallusionBench & 27.6 & 27.6 \\
-    MMMU\_DEV\_VAL & 35.3 & 35.3 \\
-    MMVet & 31.1 & 30.2 \\
-    MathVista\_MINI & 26.1 & 25.4 \\
+    MMStar & 30.4 & 30.4 & \srclink{https://arxiv.org/abs/2403.20330}{Chen+ '24} \\
+    OCRBench & 317 & 317 & \srclink{https://arxiv.org/abs/2305.07895}{Liu+ '23} \\
+    HallusionBench & 27.6 & 27.6 & \srclink{https://arxiv.org/abs/2310.14566}{Guan+ '24} \\
+    MMMU\_DEV\_VAL & 35.3 & 35.3 & \srclink{https://arxiv.org/abs/2311.16502}{Yue+ '24} \\
+    MMVet & 31.1 & 30.2 & \srclink{https://arxiv.org/abs/2308.02490}{Yu+ '24} \\
+    MathVista\_MINI & 26.1 & 25.4 & \srclink{https://arxiv.org/abs/2310.02255}{Lu+ '24} \\
     \bottomrule
   \end{tabular}
 
@@ -64,7 +66,7 @@
     \item \textbf{OOM fix}: \texttt{batch\_size=16} crashed on 2$\times$H200; fixed to \texttt{batch=2, grad\_accum=2}
     \item \textbf{Timing}: $\sim$2.8s/step $\times$ 200 steps = $\sim$9.3 min training
     \item \textbf{Configurable}: \texttt{max\_steps\_cap} and \texttt{timeout} now in task YAML
-    \item \textbf{Tool docstrings}: rewrote all 13 to ``what + when'' only (per smelly tool descriptions paper)
+    \item \textbf{Tool docstrings}: rewrote all 13 to ``what + when'' only (\srclink{https://arxiv.org/abs/2602.14878}{SAILResearch '26})
   \end{itemize}
 
   \vspace{0.5em}
