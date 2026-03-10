@@ -274,25 +274,6 @@ MathVista\_MINI & 26.1 & 25.4 & \cite{lu2024mathvista} & VLMEvalKit run \\
 
 With all fixes applied, the agent runs the full loop on the setup described in Section~\ref{sec:setup}.
 
-\begin{table}[H]
-\centering
-\small
-\caption{Benchmark scores across agent episodes. Baseline is LLaVA-1.5-7B zero-shot. Ep~1 matches/beats baseline on MMStar and OCRBench with only 10k curated samples. Ep~3--4 show failure modes from aggressive filtering and budget reduction. Ep~5 is the first run with restructured tool descriptions (Purpose/Guidelines/Limitations).}
-\label{tab:episode-results}
-\begin{tabular}{lcccccccc}
-\toprule
-& \textbf{Samples} & \textbf{MMStar} & \textbf{OCRBench} & \textbf{Hallusion} & \textbf{MMMU} & \textbf{MMVet} & \textbf{MathVista} & \textbf{Note} \\
-\midrule
-Baseline & --- & 30.3 & 317 & 27.6 & 35.3 & 31.1 & 26.1 & zero-shot \\
-\midrule
-Ep~1 & 9,998 & \textbf{30.3} & \textbf{333} & 46.9 & 3.6 & --- & --- & uniform mix, judge failed \\
-Ep~2 & 9,997 & --- & --- & --- & --- & --- & --- & eval crashed \\
-Ep~3 & 9,999 & 1.1 & 320 & 45.2 & 3.2 & --- & --- & quality\_filter aggressive \\
-Ep~4 & 4,999 & 0.9 & 333 & 47.5 & --- & --- & --- & halved budget, eval crashed \\
-Ep~5 & 10,000 & 1.2 & \textbf{328} & \textbf{46.2} & \textbf{25.8} & 0.5 & 0.2 & new docstrings, no quality\_filter \\
-\bottomrule
-\end{tabular}
-\end{table}
 
 \paragraph{Episode summary.}
 
@@ -315,29 +296,20 @@ Ep~5 & 10,000 & 1.2 & \textbf{328} & \textbf{46.2} & \textbf{25.8} & 0.5 & 0.2 &
 \end{tabular}
 \end{table}
 
-\paragraph{Ep~1: baseline-competitive on first attempt.}
-The agent's first curation run matched baseline MMStar (30.3 vs 30.3) and beat OCRBench (333 vs 317) using a uniform temperature-sampled mix across 4 datasets (captcha auto-excluded by \texttt{vlm\_filter}). This demonstrates the pipeline produces viable training data.
-
-\paragraph{Ep~3: aggressive filtering destroys MMStar.}
-The agent applied \texttt{quality\_filter} with \texttt{min\_answer\_words=2}, silently removing valid single-word VQA answers. After rollback and retry, MMStar collapsed to 1.07\% while OCRBench held (320). This failure motivated the default parameter changes described in Section~1.3.
-
-\paragraph{Ep~4: budget sensitivity.}
-After a finetune timeout (1808s on 10k samples), the agent halved to 5k. MMStar collapsed further to 0.93\% while HallusionBench was unaffected (47.5 aAcc). MMStar requires diverse general knowledge that needs the full 10k budget.
-
 % Color-coded transcript: blue = agent reasoning, orange = tool execution
 \definecolor{agentbg}{HTML}{E8F1FC}
 \definecolor{agentframe}{HTML}{2563EB}
 \definecolor{actionbg}{HTML}{FFF3E0}
 \definecolor{actionframe}{HTML}{E65100}
 
-\newtcolorbox{agentthought}[1][]{enhanced, colback=agentbg, colframe=agentframe, boxrule=0.6pt, left=6pt, right=6pt, top=4pt, bottom=3pt, sharp corners, fonttitle=\sffamily\bfseries\small, coltitle=agentframe, attach boxed title to top left={xshift=4pt, yshift=-2pt}, boxed title style={empty, size=minimal}, #1}
+\newtcolorbox{agentthought}[1][]{enhanced, before={\noindent}, colback=agentbg, colframe=agentframe, boxrule=0.6pt, left=6pt, right=6pt, top=4pt, bottom=3pt, sharp corners, fonttitle=\sffamily\bfseries\small, coltitle=agentframe, attach boxed title to top left={xshift=4pt, yshift=-2pt}, boxed title style={empty, size=minimal}, #1}
 
 \newtcolorbox{toolaction}[1][]{enhanced, colback=actionbg, colframe=actionframe, boxrule=0.6pt, left=6pt, right=6pt, top=4pt, bottom=3pt, sharp corners, fonttitle=\sffamily\bfseries\small, coltitle=actionframe, attach boxed title to top left={xshift=4pt, yshift=-2pt}, boxed title style={empty, size=minimal}, #1}
 
 \paragraph{Ep~5: verbatim reasoning trace.}
 Episode~5 is the first run after the tool description rewrite (Section~1.2) and with seed memories from Ep~1--4. It completed the full pipeline in \textbf{12 steps}. All quotes below are verbatim from \texttt{events.jsonl} (167 lines) with line numbers cited. \colorbox{agentbg}{\textcolor{agentframe}{\textbf{Blue}}} = agent reasoning; \colorbox{actionbg}{\textcolor{actionframe}{\textbf{Orange}}} = tool execution.
 
-\subparagraph{Step 0 --- Strategic planning (line 3).}
+\subparagraph{Step 0:Strategic planning (line 3).}
 Before any tool call, the agent reviews all prior episodes from seed memory:
 
 \begin{agentthought}[title={Agent Thought}]
@@ -353,37 +325,38 @@ Before any tool call, the agent reviews all prior episodes from seed memory:
 3. \textbf{Mix ratio computation}: Manually verify that captcha gets a non-zero share (e.g., \textasciitilde10-15\%) to help OCRBench, while keeping strong instruction sources (llava\_instruct, cosyn\_chart) at \textasciitilde25-30\% each.
 \end{agentthought}
 
-\noindent Key decision: the agent explicitly \textbf{skips text-based filtering} --- a learned correction from Ep~3, where \texttt{quality\_filter} collapsed MMStar to 1\%.
+\noindent Key decision: the agent explicitly \textbf{skips text-based filtering}:a learned correction from Ep~3, where \texttt{quality\_filter} collapsed MMStar to 1\%.
 
-\subparagraph{Steps 1--6 --- Profile and filter (lines 45--106).}
+\subparagraph{Steps 1--6:Profile and filter (lines 45--106).}
+\mbox{}
 
 \begin{toolaction}[title={Tool Calls}]
-\small\ttfamily profile\_datasets(sample\_n=1000, seed=42) \textrm{$\to$ OK, 0.8s}\\[4pt]
-\small
-\begin{tabular}{llrrl}
+\scriptsize
+\begin{tabular}{@{}rlrr@{}}
 \toprule
-\textbf{Step} & \textbf{vlm\_filter(dataset)} & \textbf{Kept/Total} & \textbf{Time} & \textbf{Line} \\
+\textbf{Step} & \textbf{Call} & \textbf{Kept/Total} & \textbf{Time} \\
 \midrule
-2 & vqav2 & 9{,}970 / 10{,}000 & 20s & 57 \\
-3 & captcha & \textbf{0 / 10{,}000} & 4s & 69 \\
-4 & cosyn\_chart & 9{,}942 / 10{,}000 & 339s & 81 \\
-5 & llava\_instruct & 9{,}980 / 10{,}000 & 147s & 93 \\
-6 & ocrvqa & 9{,}829 / 10{,}000 & 14s & 105 \\
+1 & \texttt{profile\_datasets(sample\_n=1000, seed=42)} & & 0.8s \\
+2 & \texttt{vlm\_filter(vqav2)} & 9{,}970 / 10{,}000 & 20s \\
+3 & \texttt{vlm\_filter(captcha)} & \textbf{0 / 10{,}000} & 4s \\
+4 & \texttt{vlm\_filter(cosyn\_chart)} & 9{,}942 / 10{,}000 & 339s \\
+5 & \texttt{vlm\_filter(llava\_instruct)} & 9{,}980 / 10{,}000 & 147s \\
+6 & \texttt{vlm\_filter(ocrvqa)} & 9{,}829 / 10{,}000 & 14s \\
 \bottomrule
 \end{tabular}
 \end{toolaction}
 
 \noindent Captcha returns 0 rows. The agent's plan called for 10--15\% captcha, but it adapts immediately (line 71):
 
-\begin{agentthought}[title={Agent Thought --- data-driven plan revision}]
+\begin{agentthought}[title={Agent Thought:data-driven plan revision}]
 \small\ttfamily
 Whoa! captcha all images filtered out (likely low-res). That means captcha may not be usable for visual instruction (maybe it's text captcha images small). We may still consider using it? But images are all too small; we cannot use them. So we should drop captcha from mix.
 \end{agentthought}
 
-\subparagraph{Step 7 --- Proportional reasoning (line 107).}
+\subparagraph{Step 7:Proportional reasoning (line 107).}
 The agent filtered 10k-row samples but needs full-dataset effective sizes for mixing. It derives proportional estimates unprompted:
 
-\begin{agentthought}[title={Agent Thought --- quantitative reasoning}]
+\begin{agentthought}[title={Agent Thought:quantitative reasoning}]
 \small\ttfamily
 We don't have full counts after filtering, but we know original dataset sizes from profile (num\_rows). We can estimate filtered proportion = kept/original\_rows * total rows.\\[4pt]
 From profile: vqav2 total 82772 rows, kept proportion = 9970/10000=0.997, so filtered rows \ensuremath{\approx} 82772*0.997 \ensuremath{\approx} 82540.\\
@@ -393,12 +366,12 @@ llava\_instruct total 157710 rows, kept proportion =0.998 \ensuremath{\Rightarro
 ocrvqa total 165746 rows, kept proportion =0.9829 \ensuremath{\Rightarrow} \ensuremath{\approx} 162804.
 \end{agentthought}
 
-\noindent All five estimates are arithmetically correct. This reasoning was emergent --- no tool or prompt instructed the agent to extrapolate from sample-level filter rates to full dataset sizes.
+\noindent All five estimates are arithmetically correct. This reasoning was emergent:no tool or prompt instructed the agent to extrapolate from sample-level filter rates to full dataset sizes.
 
-\subparagraph{Steps 7--8 --- Error recovery (lines 109--114).}
+\subparagraph{Steps 7--8:Error recovery (lines 109--114).}
 First \texttt{compute\_mix\_ratio} call passes 4 sizes for 5 datasets. The agent diagnoses and fixes in one step (line 111):
 
-\begin{agentthought}[title={Agent Thought --- self-correction}]
+\begin{agentthought}[title={Agent Thought:self-correction}]
 \small\ttfamily
 The tool expects effective\_sizes count to match number of active datasets (including those with 0 rows?). It sees 5 active datasets (including captcha). We gave 4 sizes. Need to provide size for captcha (0).
 \end{agentthought}
@@ -408,17 +381,22 @@ The tool expects effective\_sizes count to match number of active datasets (incl
 \textrm{$\to$ OK. Recipe: mode=auto\_temperature, $T{=}5$, total 9{,}998 samples.}
 \end{toolaction}
 
-\subparagraph{Steps 9--12 --- Mix, save, finetune, eval (lines 154--166).}
+\subparagraph{Steps 9--12:Mix, save, finetune, eval (lines 154--166).}
+\mbox{}
 
 \begin{toolaction}[title={Tool Calls}]
-\small\ttfamily
-vlm\_mix(sample\_counts="2296,0,2459,2615,2630", seed=42) \textrm{$\to$ OK, 0.8s (10{,}000 rows)}\\
-save\_to\_disk(file\_format="parquet") \textrm{$\to$ OK, 4.0s}\\
-submit\_finetune(dataset\_id="vqav2+captcha+cosyn\_chart+llava\_instruct+ocrvqa")\\
-\quad \textrm{$\to$ OK, \textbf{1{,}226s} (20 min). job\_id="ft-e95ca9d3"}\\
-submit\_eval(model\_id="ft-e95ca9d3", model\_family="auto")\\
-\quad \textrm{$\to$ \textbf{ERR}, 140s. GPU OOM --- finetune did not release memory.}\\
-\quad \textrm{Scores recovered from cached VLMEvalKit outputs.}
+\scriptsize
+\begin{tabular}{@{}rllr@{}}
+\toprule
+\textbf{Step} & \textbf{Call} & \textbf{Result} & \textbf{Time} \\
+\midrule
+9  & \texttt{vlm\_mix(counts="2296,0,2459,2615,2630")} & OK, 10{,}000 rows & 0.8s \\
+10 & \texttt{save\_to\_disk(format="parquet")} & OK & 4.0s \\
+11 & \texttt{submit\_finetune(dataset\_id=...)} & OK, job \texttt{ft-e95ca9d3} & 1{,}226s \\
+12 & \texttt{submit\_eval(model\_id="ft-e95ca9d3")} & \textbf{ERR}, GPU OOM & 140s \\
+\bottomrule
+\end{tabular}\\[2pt]
+\textrm{Scores recovered from cached VLMEvalKit outputs.}
 \end{toolaction}
 
 \noindent The agent passes the correct \texttt{job\_id} format (not a filesystem path) and omits training hyperparameters (fixed by task config). No hallucinated parameters across all 12 calls.
@@ -426,18 +404,11 @@ submit\_eval(model\_id="ft-e95ca9d3", model\_family="auto")\\
 \subparagraph{Analysis.}
 \begin{enumerate}
     \item \textbf{Cross-episode learning}: Reviews 4 prior episodes, correctly attributes Ep~3's MMStar collapse to \texttt{quality\_filter}, explicitly avoids it.
-    \item \textbf{Data-driven plan revision}: Drops captcha despite planning 10--15\% --- data overrides the prior plan.
+    \item \textbf{Data-driven plan revision}: Drops captcha despite planning 10--15\%. Data overrides the prior plan.
     \item \textbf{Emergent quantitative reasoning}: Derives proportional effective-size estimates unprompted. All arithmetic correct.
     \item \textbf{Self-correction}: Diagnoses argument count mismatch and fixes in one step.
     \item \textbf{Efficiency}: 12 steps vs.\ 18--25 in Ep~1--4. Zero rollbacks, zero retried finetunes.
 \end{enumerate}
-
-\paragraph{Operational observations.}
-\begin{itemize}
-    \item Data ops (profile, filter, mix, save) complete in $<$10 min total. Training and eval dominate wall time ($\sim$20 min finetune + $\sim$15--45 min eval per episode).
-    \item Captcha dataset always dropped: all images fail \texttt{vlm\_filter} structural checks across all 5 episodes.
-    \item Zombie subprocess management is a critical operational concern: finetune and eval launch as decoupled subprocesses that survive agent crashes. Stale GPU processes caused 3 of 5 episode failures (Ep~2, Ep~4 eval crashes; Ep~5 eval OOM).
-\end{itemize}
 
 
 %% ============================================================
