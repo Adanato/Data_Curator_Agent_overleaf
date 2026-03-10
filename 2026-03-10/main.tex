@@ -249,23 +249,23 @@ Six benchmarks via VLMEvalKit, with Qwen3.5-27B-FP8 as the LLM judge (served loc
 \begin{table}[H]
 \centering
 \small
-\caption{Eval sanity check: LLaVA-1.5-7B zero-shot scores. Baseline column is a mix of paper-reported and VLMEvalKit-reproduced values; see Note column. Local Qwen3.5 judge within $\sim$1 point of baselines.}
+\caption{LLaVA-1.5-7B zero-shot baselines. All values are from published papers unless noted. We did not run our own zero-shot evaluation.}
 \label{tab:judge-sanity}
-\begin{tabular}{lccll}
+\begin{tabular}{lcll}
 \toprule
-\textbf{Benchmark} & \textbf{Baseline} & \textbf{Ours (Qwen3.5 judge)} & \textbf{Source} & \textbf{Note} \\
+\textbf{Benchmark} & \textbf{Baseline} & \textbf{Source} & \textbf{Note} \\
 \midrule
-MMStar & 30.3 & 30.4 & \cite{chen2024mmstar} & from paper \\
-OCRBench & 317 & 317 & \cite{liu2023ocrbench} & VLMEvalKit run (paper: 297) \\
-HallusionBench & 27.6 & 27.6 & \cite{guan2024hallusionbench} & VLMEvalKit composite \\
-MMMU\_DEV\_VAL & 35.3 & 35.3 & \cite{yue2024mmmu} & lmms-eval (val split) \\
-MMVet & 31.1 & 30.2 & \cite{yu2024mmvet} & from paper \\
-MathVista\_MINI & 26.1 & 25.4 & \cite{lu2024mathvista} & VLMEvalKit run \\
+MMStar & 30.3 & \cite{chen2024mmstar} & from MMStar paper, Table~5 \\
+OCRBench & 297 & \cite{liu2023ocrbench} & from paper (VLMEvalKit reports 317) \\
+HallusionBench & 27.6 & VLMEvalKit & composite $(\text{aAcc}+\text{fAcc}+\text{qAcc})/3$; no paper value for 7B \\
+MMMU\_DEV\_VAL & 36.4 & \cite{yue2024mmmu} & from MMMU paper (lmms-eval reports 35.3) \\
+MMVet & 31.1 & \cite{liu2024llava15} & from LLaVA-1.5 paper, Table~4 \\
+MathVista\_MINI & N/A & --- & original LLaVA-13B scores 26.1~\cite{lu2024mathvista}; no paper value for 1.5-7B \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\noindent Judge-dependent benchmarks (MMVet, MathVista) differ by $<$1 point from published baselines, acceptable for relative comparisons across curation runs. The reward signal used by the agent is a normalized composite of these benchmark scores.
+\noindent The reward signal used by the agent is a normalized composite of benchmark scores. Judge-dependent benchmarks (MMVet, MathVista) use Qwen3.5-27B-FP8 served locally via vLLM.
 
 
 %% ============================================================
