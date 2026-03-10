@@ -140,36 +140,71 @@ They decompose tool descriptions into six components and ablate each. Augmenting
 
 \subsection{Our format: Purpose / Guidelines / Limitations}
 
-We adopt the minimal effective set from~\cite{smellyToolDesc2026} and rewrote all 20+ tool descriptions: \textbf{Purpose} (what the tool does + what it returns), \textbf{Guidelines} (when to use it + ordering constraints), \textbf{Limitations} (failure modes + performance constraints).
+\definecolor{purposebg}{HTML}{FDECEA}
+\definecolor{guidelinesbg}{HTML}{FFF9E6}
+\definecolor{limitationsbg}{HTML}{E6F0FA}
 
-\begin{figure}[H]
-\centering
-\small
-\begin{tabular}{|p{0.95\linewidth}|}
-\hline
-\textbf{Before (ad-hoc, implementation-leaking):} \\[2pt]
-\texttt{"""Filter a dataset by image integrity checks.} \\
-\texttt{Use case: Run before text quality filtering...} \\
-\texttt{Implementation: Iterates all rows checking image} \\
-\texttt{decodability, minimum side length (200px)...} \\
-\texttt{Output: JSON with dataset, original\_rows, kept..."""} \\[4pt]
-\hline
-\textbf{After (Purpose / Guidelines / Limitations):} \\[2pt]
-\texttt{Purpose: Remove rows whose images are corrupt,} \\
-\texttt{too small (<200px), or extreme aspect ratios (>3:1).} \\
-\texttt{Returns kept/rejected counts and per-reason breakdown.} \\[2pt]
-\texttt{Guidelines: Run on each dataset after profile\_datasets} \\
-\texttt{and before text-based filters. Only requires dataset\_id} \\
-\texttt{--- thresholds are fixed. Safe on all dataset types.} \\[2pt]
-\texttt{Limitations: Requires loading full image data into} \\
-\texttt{memory. Slow on large datasets with many shards.} \\
-\texttt{Does not assess image content quality --- only} \\
-\texttt{structural properties.} \\[2pt]
-\hline
-\end{tabular}
-\caption{Before/after tool description for \texttt{vlm\_filter}. The old format exposes internals (``iterates all rows'') and lacks ordering guidance or failure modes. The new format follows the minimal effective component set from~\cite{smellyToolDesc2026}: Purpose is essential; Examples are omitted (no significant effect in ablation).}
-\label{fig:tool-desc}
-\end{figure}
+We adopt the minimal effective set from~\cite{smellyToolDesc2026} and rewrote all 20+ tool descriptions: \colorbox{purposebg}{\textbf{Purpose}} (what the tool does + what it returns), \colorbox{guidelinesbg}{\textbf{Guidelines}} (when to use it + ordering constraints), \colorbox{limitationsbg}{\textbf{Limitations}} (failure modes + performance constraints). Below are three verbatim docstrings from the codebase showing this format applied to tools at different pipeline stages.
+
+\medskip
+\noindent\textbf{\texttt{vlm\_filter}} \textit{(preselection --- image structural quality)}
+\begin{tcolorbox}[enhanced, colback=white, colframe=black!60, boxrule=0.6pt, left=6pt, right=6pt, top=0pt, bottom=0pt, sharp corners, boxsep=0pt]
+\colorbox{purposebg}{\parbox{\dimexpr\linewidth-2\fboxsep}{%
+\ttfamily\scriptsize\vspace{4pt}
+\textbf{Purpose}: Remove rows whose images are corrupt, too
+small (any side <200px), or have extreme aspect ratios
+(>3:1). Returns kept/rejected counts and per-reason
+breakdown.\vspace{4pt}
+}}\\[-1pt]
+\colorbox{guidelinesbg}{\parbox{\dimexpr\linewidth-2\fboxsep}{%
+\ttfamily\scriptsize\vspace{4pt}
+\textbf{Guidelines}: Run on each dataset after profile\_datasets
+and before text-based filters. Only requires the
+dataset\_id --- thresholds are fixed. Safe on all
+dataset types.\vspace{4pt}
+}}\\[-1pt]
+\colorbox{limitationsbg}{\parbox{\dimexpr\linewidth-2\fboxsep}{%
+\ttfamily\scriptsize\vspace{4pt}
+\textbf{Limitations}: Requires loading full image data into
+memory (calls ensure\_full internally). Slow on large
+datasets with many shards. Does not assess image
+content quality --- only structural properties.\vspace{4pt}
+}}
+\end{tcolorbox}
+
+\medskip
+\noindent\textbf{\texttt{submit\_finetune}} \textit{(postselection --- training)}
+\begin{tcolorbox}[enhanced, colback=white, colframe=black!60, boxrule=0.6pt, left=6pt, right=6pt, top=0pt, bottom=0pt, sharp corners, boxsep=0pt]
+\colorbox{purposebg}{\parbox{\dimexpr\linewidth-2\fboxsep}{%
+\ttfamily\scriptsize\vspace{4pt}
+\textbf{Purpose}: Finetune the target model on the curated dataset. Blocks until training completes. Returns a job\_id (e.g.\ ``ft-abc123'') that identifies the trained model for evaluation.\vspace{4pt}
+}}\\[-1pt]
+\colorbox{guidelinesbg}{\parbox{\dimexpr\linewidth-2\fboxsep}{%
+\ttfamily\scriptsize\vspace{4pt}
+\textbf{Guidelines}: Run after save\_to\_disk. Pass the dataset\_id of the mixed dataset (e.g.\ ``vqav2+captcha+cosyn\_chart''). All training hyperparameters (learning rate, epochs, batch size) are fixed by the task YAML --- you only control which data to train on. The returned job\_id is required by submit\_eval.\vspace{4pt}
+}}\\[-1pt]
+\colorbox{limitationsbg}{\parbox{\dimexpr\linewidth-2\fboxsep}{%
+\ttfamily\scriptsize\vspace{4pt}
+\textbf{Limitations}: Blocking call --- typically takes 10--30 minutes depending on dataset size. Training is capped at max\_steps from the task config. Cannot be cancelled once started. All hyperparameters are fixed --- the agent has no control over training configuration.\vspace{4pt}
+}}
+\end{tcolorbox}
+
+\medskip
+\noindent\textbf{\texttt{submit\_eval}} \textit{(postselection --- evaluation)}
+\begin{tcolorbox}[enhanced, colback=white, colframe=black!60, boxrule=0.6pt, left=6pt, right=6pt, top=0pt, bottom=0pt, sharp corners, boxsep=0pt]
+\colorbox{purposebg}{\parbox{\dimexpr\linewidth-2\fboxsep}{%
+\ttfamily\scriptsize\vspace{4pt}
+\textbf{Purpose}: Evaluate a finetuned model on VLM benchmarks configured in the task YAML (e.g.\ MMStar, OCRBench, MMMU, HallusionBench, MMVet, MathVista). Blocks until all benchmarks complete. Returns per-benchmark scores normalized to [0,1].\vspace{4pt}
+}}\\[-1pt]
+\colorbox{guidelinesbg}{\parbox{\dimexpr\linewidth-2\fboxsep}{%
+\ttfamily\scriptsize\vspace{4pt}
+\textbf{Guidelines}: Run after submit\_finetune. Pass model\_id set to the job\_id returned by submit\_finetune (e.g.\ ``ft-abc123'') --- do NOT pass a filesystem path. Benchmarks are configured automatically from the task YAML. Use the returned scores to inform the next episode's data curation strategy.\vspace{4pt}
+}}\\[-1pt]
+\colorbox{limitationsbg}{\parbox{\dimexpr\linewidth-2\fboxsep}{%
+\ttfamily\scriptsize\vspace{4pt}
+\textbf{Limitations}: Blocking call --- evaluation time scales with number of benchmarks (typically 15--45 minutes total). Benchmarks and evaluation protocol are fixed by the task config --- the agent cannot select which benchmarks to run. Requires a running vLLM inference server and judge model.\vspace{4pt}
+}}
+\end{tcolorbox}
 
 \subsection{Parameter defaults as implicit guidance}
 
