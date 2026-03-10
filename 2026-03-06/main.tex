@@ -22,6 +22,7 @@
 %% SECTION 1: HOW TOOL DESCRIPTIONS ENTER THE CONTEXT WINDOW
 %% ============================================================
 
+\newpage
 \section{How Tool Descriptions Enter the Context Window}
 
 Tool descriptions are \textbf{injected directly into the system/developer message} as input tokens on every API call.
@@ -84,22 +85,11 @@ type get_weather = (_: {
     \item Verbose descriptions on many tools $\times$ many agent steps $=$ massive token overhead
 \end{itemize}
 
-\subsection{Implication for DCA}
-
-This maps directly onto DCA's tool-use failures.
-With 15+ tools, each tool description is re-injected on every turn of the agent loop.
-The quality of these descriptions determines whether the LLM can correctly select and parameterize tools.
-Our dependency injection (Section~\ref{sec:injection}, Feb~27) already reduces the \emph{parameter schema} the LLM sees -- but the \emph{description text} is equally important and currently unoptimized.
-
-
-%% ============================================================
-%% SECTION 2: LITERATURE REVIEW -- CONTEXT EVALUATION
-%% ============================================================
 
 \newpage
 \section{Literature Review: Context Evaluation for Agentic Systems}
 
-Emerging literature shows that context files (AGENTS.md, CLAUDE.md, system prompts, tool descriptions) affect agent performance -- but untested context often \emph{hurts} rather than helps.
+Emerging literature shows that context files (AGENTS.md, CLAUDE.md, system prompts, tool descriptions) affect agent performance but untested context often \emph{hurts} rather than helps.
 
 \subsection{Anthropic's approach (Skill-Creator)}
 
@@ -111,64 +101,5 @@ Anthropic ships a skill-creator tool (\texttt{anthropics/skills} on GitHub) that
     \item Human-in-the-loop: browser eval viewer for qualitative feedback
     \item Optional blind comparison via comparator agent
 \end{itemize}
-This is essentially \textbf{unit testing for context} -- but only works for Claude Code skills.
+This is essentially \textbf{unit testing for context} but only works for Claude Code skills.
 
-\subsection{Relevant literature}
-
-\begin{table}[H]
-\centering
-\small
-\caption{Context evaluation and tool description literature.}
-\label{tab:context-lit}
-\begin{tabular}{p{4.5cm}p{7.5cm}l}
-\toprule
-\textbf{Paper} & \textbf{Key Finding} & \textbf{Ref} \\
-\midrule
-Evaluating AGENTS.md (ETH Zurich, Feb 2026) & Context files reduce task success rates, increase cost 20\%+ & \cite{evaluatingAgentsMd2026} \\
-\addlinespace
-Impact of AGENTS.md (JAWs/ICSE 2026) & Replication with Codex -- same negative finding & \cite{impactAgentsMd2026} \\
-\addlinespace
-SWE Context Bench (Feb 2026) & Filtered context helps, unfiltered hurts -- retrieval quality matters & \cite{sweContextBench2026} \\
-\addlinespace
-Agent READMEs (Nov 2025) & 2,303 files analyzed -- median readability = legal contract level & \cite{agentReadmes2025} \\
-\addlinespace
-ACE: Agentic Context Engineering (Oct 2025) & Evolving context playbooks: +10.6\% on agents, +8.6\% on finance & \cite{ace2025} \\
-\addlinespace
-MCP-Bench (Accenture, 2025) & Benchmarks tool-level schema understanding and usage & \cite{mcpBench2025} \\
-\addlinespace
-MCPAgentBench (Dec 2025) & Real-world MCP tool use benchmark with difficulty awareness & \cite{mcpAgentBench2025} \\
-\addlinespace
-Smelly Tool Descriptions (Feb 2026) & 97.1\% of MCP tool descriptions have smells; Purpose + Guidelines is highest-leverage fix; component effectiveness is domain-dependent & \cite{smellyToolDesc2026} \\
-\addlinespace
-A Survey of Context Engineering (Jul 2025) & Comprehensive taxonomy from 1,400+ papers & \cite{contextEngineeringSurvey2025} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{The gap}
-
-Nobody has a framework for: given a tool (MCP server, AutoGen tool, function schema), \textbf{what is the optimal description so an agent can use it correctly?}
-
-This is a data-centric problem. A data-centric approach would:
-\begin{enumerate}
-    \item Decompose tool descriptions into atomic instruction components
-    \item Measure the marginal contribution of each component (Shapley-style)
-    \item Automatically curate/prune descriptions based on measured utility
-\end{enumerate}
-
-
-%% ============================================================
-%% KEY FINDINGS
-%% ============================================================
-
-\keyfindings{
-    \item \textbf{Tool descriptions are injected into the system prompt as TypeScript-like type definitions on every API call.}
-        Confirmed via OpenAI Harmony docs and jailbreak extractions matching production GPT-4/4.1 format.
-    \item \textbf{No existing framework optimizes tool descriptions for agent performance.}
-        Context evaluation work (AGENTS.md papers, SWE Context Bench) focuses on repository-level context, not tool-level descriptions.
-    \item \textbf{97.1\% of MCP tool descriptions have ``smells,'' and the optimal fix is domain-dependent.}
-        Purpose + Guidelines dominates in Finance; Purpose + Examples in 3D Design.
-        Implies DCA tool descriptions should adapt to the data domain being curated.
-    \item \textbf{DCA's dependency injection already optimizes the parameter schema} (Feb~27).
-        The next optimization target is the description text itself.
-}
