@@ -7,32 +7,226 @@
         \meetinglink{Self-Evolving Agents Survey (Fang+ 2025)}{https://arxiv.org/abs/2502.01248}
     }}
     {\begin{itemize}
-        \item Fixed end-to-end pipeline: eval judge, training OOM, tool docstrings
-        \item Validated local Qwen3.5-27B-FP8 as eval judge (replaces GPT-4 dependency)
-        \item Agent successfully runs profile $\to$ filter $\to$ mix $\to$ train $\to$ eval loop
-        \item Literature review: multi-agent design patterns, memory architectures, iterative self-improvement (51 papers)
+        \item Pipeline fixes: dropped DeepSpeed for HF Trainer, fixed image padding, replaced GPT-4o judge with local Qwen3.5-27B-FP8, fixed batch size OOM, made training limits configurable
+        \item Tool description design: restructured 20+ tools to Purpose/Guidelines/Limitations per smelly-descriptions ablation
+        \item 5 agent episodes on FineVision5: Ep~1 matches baseline (MMStar 30.3, OCRBench 333); failure modes from aggressive filtering and budget reduction
     \end{itemize}}
     {}
 
 
+
 %% ============================================================
-%% SECTION 1: PIPELINE FIXES
+%% SECTION: TOOL DESCRIPTION DESIGN
 %% ============================================================
 
-\section{Pipeline Fixes}
+\section{Tool Description Design}
 
-Three blockers prevented the agent from completing end-to-end episodes. All resolved this week.
+\subsection{How tool definitions reach the model}
 
-\subsection{Eval judge: Qwen3.5-27B-FP8 replaces GPT-4}
+% TODO: source citations for this subsection
+In tool-calling LLM systems, tool definitions (name, description, parameter schema) are not passed through a side channel --- they are serialized into the model's context window as part of the system prompt. Each provider uses a model-specific format (Figure~\ref{fig:tool-formats}): the tool description is rendered by a chat template into literal prompt text that competes for attention with task instructions and conversation history. HuggingFace Transformers exposes this via the \texttt{tools} parameter of \texttt{apply\_chat\_template}, which passes tool JSON schemas through the model's Jinja2 template to produce the final prompt string.
 
-VLMEvalKit requires an LLM judge for MMVet and MathVista\_MINI.
-Previously required \texttt{OPENAI\_API\_KEY} $\to$ GPT-4o.
-Now uses locally-served Qwen3.5-27B-FP8 via vLLM at \texttt{ARC\_API\_BASE}.
+This means tool description quality has a direct effect on agent behavior: a vague or noisy description wastes context tokens and increases the chance of incorrect tool selection or malformed arguments. The description is, in effect, the API contract between the tool developer and the LLM policy.
+
+% Sources: HF chat_templating docs (https://huggingface.co/docs/transformers/en/chat_templating_writing),
+%   HF tool use docs (https://huggingface.co/docs/transformers/main/en/chat_extras),
+%   OpenAI Harmony format (https://developers.openai.com/cookbook/articles/openai-harmony),
+%   Meta Llama 3.1 prompt format (https://www.llama.com/docs/model-cards-and-prompt-formats/llama3_1/)
+
+\definecolor{anthropicbg}{HTML}{FFF0E6}
+\definecolor{anthropicframe}{HTML}{D97706}
+\definecolor{harmonybg}{HTML}{E8F5E9}
+\definecolor{harmonyframe}{HTML}{388E3C}
+\definecolor{qwenbg}{HTML}{E8F1FC}
+\definecolor{qwenframe}{HTML}{2A74B9}
+\definecolor{llamabg}{HTML}{F3E8FF}
+\definecolor{llamaframe}{HTML}{7C3AED}
+
+\begin{figure}[H]
+\centering
+\small
+\caption{The same tool JSON schema rendered into prompt text by four providers. gpt-oss-120b, Qwen~3.5, and Llama~3.1 verified via \texttt{apply\_chat\_template}; Anthropic format from API documentation. The description field (highlighted) appears verbatim in each --- it is literal prompt text, not metadata.}
+\label{fig:tool-formats}
+
+\begin{tcolorbox}[enhanced, colback=anthropicbg, colframe=anthropicframe, boxrule=0.8pt, left=4pt, right=4pt, top=4pt, bottom=3pt, sharp corners,
+  attach boxed title to top left={xshift=4pt, yshift=-2pt},
+  boxed title style={empty, size=minimal},
+  coltitle=anthropicframe, fonttitle=\sffamily\bfseries\large,
+  title={Anthropic (Claude)}]
+\ttfamily\scriptsize
+<functions>\\
+<function>\{"name": "vlm\_filter",\\
+\quad "description": \colorbox{yellow!30}{"Remove rows whose images}\\
+\quad \colorbox{yellow!30}{are corrupt, too small, or extreme aspect}\\
+\quad \colorbox{yellow!30}{ratios."},\\
+\quad "parameters": \{"dataset\_name":\\
+\quad\quad \{"type": "string"\}\}\}</function>\\
+</functions>
+\end{tcolorbox}
+
+\vspace{-4pt}
+
+\begin{tcolorbox}[enhanced, colback=harmonybg, colframe=harmonyframe, boxrule=0.8pt, left=4pt, right=4pt, top=4pt, bottom=3pt, sharp corners,
+  attach boxed title to top left={xshift=4pt, yshift=-2pt},
+  boxed title style={empty, size=minimal},
+  coltitle=harmonyframe, fonttitle=\sffamily\bfseries\large,
+  title={gpt-oss-120b}]
+\ttfamily\scriptsize
+<|start|>developer<|message|>\\
+\# Tools\\
+\\
+\#\# functions\\
+\\
+namespace functions \{\\
+\\
+// \colorbox{yellow!30}{Remove rows whose images are corrupt, too small,}\\
+// \colorbox{yellow!30}{or extreme aspect ratios.}\\
+type vlm\_filter = (\_: \{\\
+dataset\_name: string,\\
+\}) => any;\\
+\\
+\} // namespace functions<|end|>
+\end{tcolorbox}
+
+\vspace{-4pt}
+
+\begin{tcolorbox}[enhanced, colback=qwenbg, colframe=qwenframe, boxrule=0.8pt, left=4pt, right=4pt, top=4pt, bottom=3pt, sharp corners,
+  attach boxed title to top left={xshift=4pt, yshift=-2pt},
+  boxed title style={empty, size=minimal},
+  coltitle=qwenframe, fonttitle=\sffamily\bfseries\large,
+  title={Qwen 3.5}]
+\ttfamily\scriptsize
+<|im\_start|>system\\
+\# Tools\\
+\\
+You have access to the following functions:\\
+\\
+<tools>\\
+\{"type": "function", "function": \{"name": "vlm\_filter",\\
+"description": \colorbox{yellow!30}{"Remove rows whose images are corrupt,}\\
+\colorbox{yellow!30}{too small, or extreme aspect ratios."},\\
+"parameters": \{"dataset\_name": \{"type": "string"\}\}\}\}\\
+</tools><|im\_end|>
+\end{tcolorbox}
+
+\vspace{-4pt}
+
+\begin{tcolorbox}[enhanced, colback=llamabg, colframe=llamaframe, boxrule=0.8pt, left=4pt, right=4pt, top=4pt, bottom=3pt, sharp corners,
+  attach boxed title to top left={xshift=4pt, yshift=-2pt},
+  boxed title style={empty, size=minimal},
+  coltitle=llamaframe, fonttitle=\sffamily\bfseries\large,
+  title={Llama 3.1}]
+\ttfamily\scriptsize
+<|start\_header\_id|>user<|end\_header\_id|>\\
+\\
+Given the following functions, please respond with\\
+a JSON for a function call ...\\
+\\
+\{"type": "function", "function": \{"name": "vlm\_filter",\\
+"description": \colorbox{yellow!30}{"Remove rows whose images are corrupt,}\\
+\colorbox{yellow!30}{too small, or extreme aspect ratios."},\\
+"parameters": \{"dataset\_name": \{"type": "string"\}\}\}\}\\
+\\
+Filter the dataset<|eot\_id|>
+\end{tcolorbox}
+
+\end{figure}
+
+\subsection{Smelly tool descriptions}
+
+Hasan et al.~\cite{smellyToolDesc2026} study 856 MCP tool descriptions and find 97.1\% contain at least one ``smell'' --- a structural deficiency such as unclear purpose, missing constraints, or leaked implementation details. 56\% have an unclear purpose specifically.
+
+They decompose tool descriptions into six components and ablate each. Augmenting all six improves task success by 5.85 pp (median), but ablations show that \textbf{Examples} can be removed with no statistically significant degradation, while \textbf{Purpose} is essential in every effective combination.
+
+\subsection{Our format: Purpose / Guidelines / Limitations}
+
+We adopt the minimal effective set from~\cite{smellyToolDesc2026} and rewrote all 20+ tool descriptions: \textbf{Purpose} (what the tool does + what it returns), \textbf{Guidelines} (when to use it + ordering constraints), \textbf{Limitations} (failure modes + performance constraints).
+
+\begin{figure}[H]
+\centering
+\small
+\begin{tabular}{|p{0.95\linewidth}|}
+\hline
+\textbf{Before (ad-hoc, implementation-leaking):} \\[2pt]
+\texttt{"""Filter a dataset by image integrity checks.} \\
+\texttt{Use case: Run before text quality filtering...} \\
+\texttt{Implementation: Iterates all rows checking image} \\
+\texttt{decodability, minimum side length (200px)...} \\
+\texttt{Output: JSON with dataset, original\_rows, kept..."""} \\[4pt]
+\hline
+\textbf{After (Purpose / Guidelines / Limitations):} \\[2pt]
+\texttt{Purpose: Remove rows whose images are corrupt,} \\
+\texttt{too small (<200px), or extreme aspect ratios (>3:1).} \\
+\texttt{Returns kept/rejected counts and per-reason breakdown.} \\[2pt]
+\texttt{Guidelines: Run on each dataset after profile\_datasets} \\
+\texttt{and before text-based filters. Only requires dataset\_id} \\
+\texttt{--- thresholds are fixed. Safe on all dataset types.} \\[2pt]
+\texttt{Limitations: Requires loading full image data into} \\
+\texttt{memory. Slow on large datasets with many shards.} \\
+\texttt{Does not assess image content quality --- only} \\
+\texttt{structural properties.} \\[2pt]
+\hline
+\end{tabular}
+\caption{Before/after tool description for \texttt{vlm\_filter}. The old format exposes internals (``iterates all rows'') and lacks ordering guidance or failure modes. The new format follows the minimal effective component set from~\cite{smellyToolDesc2026}: Purpose is essential; Examples are omitted (no significant effect in ablation).}
+\label{fig:tool-desc}
+\end{figure}
+
+\subsection{Parameter defaults as implicit guidance}
+
+We also shifted \textbf{parameter defaults} to prevent silent data loss. For example, \texttt{quality\_filter} had \texttt{min\_answer\_words=2}, which silently filtered valid single-word VQA answers (``yes'', ``3'', ``red''). Defaults changed to 0 (disabled) with activation logic moved to Guidelines: ``Only raise these for caption or instruction datasets.'' Default values are part of the tool schema the model sees --- unsafe defaults are another form of smelly description.
+
+
+%% ============================================================
+%% SECTION 2: EXPERIMENTAL SETUP
+%% ============================================================
+
+\section{Experimental Setup}
+\label{sec:setup}
+
+\subsection{Data}
+
+Five datasets from FineVision5, each containing 10k samples of image--text pairs (VQA, captioning, OCR, instruction-following). The agent's sample budget is 10k total --- it must select and mix from the available 50k. One dataset (captcha) is consistently auto-excluded by \texttt{vlm\_filter} due to structural image failures, leaving 4 effective source datasets.
+
+\subsection{Fine-tuning}
+
+LLaVA-1.5-7B full fine-tune on a single H200 (140GB). Vision tower frozen; only the language model and multimodal projector are trained.
+
+Two fixes from the previous setup:
+\begin{enumerate}
+    \item \textbf{Dropped DeepSpeed for HF Trainer + Accelerate.} DeepSpeed ZeRO-3 added complexity without benefit on a single GPU. Switching to plain HF Trainer via \texttt{accelerate launch} simplified the stack and eliminated rank-cleanup exit code bugs. Liger kernel~\cite{hsu2024liger} provides fused RoPE/RMSNorm/SwiGLU/CrossEntropy on the Llama backbone for comparable memory savings.
+    \item \textbf{Fixed image padding.} HF's \texttt{CLIPImageProcessor} does resize $\to$ center-crop, which loses edge content on non-square images. We replicate the original LLaVA \texttt{expand2square()} --- padding to square with CLIP image mean as background --- so that center-crop becomes a no-op on the spatial dimension. The data collator also now pads token sequences properly (pad token $=$ eos, labels $=$ $-100$) instead of relying on DeepSpeed's implicit handling.
+\end{enumerate}
 
 \begin{table}[H]
 \centering
 \small
-\caption{Sanity check: LLaVA-1.5-7B zero-shot scores. Baseline column is a mix of paper-reported and VLMEvalKit-reproduced values; see Note column. Local Qwen3.5 judge within $\sim$1 point of baselines.}
+\caption{Fine-tuning hyperparameters. All fixed by the task configuration --- the agent controls only which data is selected.}
+\label{tab:finetune-config}
+\begin{tabular}{ll}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Epochs & 1 \\
+Batch size (per device) & 2 \\
+Gradient accumulation & 2 (effective batch 8) \\
+Learning rate & 2e-5 (cosine, warmup 3\%) \\
+Precision & bf16 \\
+Optimizer & AdamW (fused) \\
+Max steps & 200 (cap) \\
+Max sequence length & 2048 tokens \\
+Step time & $\sim$2.8s/step \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Evaluation}
+
+Six benchmarks via VLMEvalKit, with Qwen3.5-27B-FP8 as the LLM judge (served locally via vLLM). Inference uses vLLM for the fine-tuned model.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Eval sanity check: LLaVA-1.5-7B zero-shot scores. Baseline column is a mix of paper-reported and VLMEvalKit-reproduced values; see Note column. Local Qwen3.5 judge within $\sim$1 point of baselines.}
 \label{tab:judge-sanity}
 \begin{tabular}{lccll}
 \toprule
@@ -48,156 +242,63 @@ MathVista\_MINI & 26.1 & 25.4 & \cite{lu2024mathvista} & VLMEvalKit run \\
 \end{tabular}
 \end{table}
 
-\noindent Judge-dependent benchmarks (MMVet, MathVista) within 1 point --- acceptable for relative comparisons across curation runs.
-
-\subsection{Training OOM: batch size fix}
-
-LLaVA-1.5-7B full fine-tune on 2$\times$H200 (140GB each).
-\texttt{per\_device\_train\_batch\_size=16} caused CUDA OOM at the cross-entropy loss.
-Fixed to \texttt{batch\_size=2, grad\_accum=2} (effective batch 8).
-Step time $\sim$2.8s/step, max 200 steps ($\sim$9.3 min).
-
-\subsection{Tool docstrings: what + when format}
-
-Rewrote all 13 tool docstrings following the ``smelly tool descriptions'' finding~\cite{smellyToolDesc2026}: only \textbf{what} (specific action) and \textbf{when} (usage context).
-Removed verbose parameter explanations, examples, and caveats from the class-level docstring.
-
-\subsection{Configurable training limits}
-
-Moved hardcoded timeout and max\_steps to task YAML:
-\begin{verbatim}
-training_config:
-  max_steps_cap: 200    # default 200
-  timeout: 900          # default 900s
-\end{verbatim}
+\noindent Judge-dependent benchmarks (MMVet, MathVista) differ by $<$1 point from published baselines --- acceptable for relative comparisons across curation runs. The reward signal used by the agent is a normalized composite of these benchmark scores.
 
 
 %% ============================================================
-%% SECTION 2: AGENT EPISODE OBSERVATIONS
+%% SECTION 3: EPISODE RESULTS
 %% ============================================================
 
-\section{Agent Episode Observations}
+\section{Episode Results}
 
-With all fixes applied, the agent runs the full loop on 5 FineVision5 datasets (10k samples each, budget 10k).
-
-\paragraph{Data ops are fast.}
-Profiling, filtering, mixing, and saving complete in $<$1 min total.
-\texttt{vlm\_filter} is the slowest data op ($\sim$5 min for image-heavy datasets due to full Arrow reload).
-Training ($\sim$10 min) and eval ($\sim$5 min) dominate wall time as intended.
-
-\paragraph{Agent self-corrects.}
-When \texttt{quality\_filter} with strict thresholds dropped all rows (0/10k), the agent used \texttt{rollback} and retried with lenient parameters.
-
-\paragraph{Captcha dataset always dropped.}
-All images fail \texttt{vlm\_filter} (0/10k kept). The agent correctly excludes it from the mix.
-
-
-%% ============================================================
-%% SECTION 3: LITERATURE — MULTI-AGENT DESIGN
-%% ============================================================
-
-\section{Literature: Multi-Agent System Design}
-
-Next step is splitting the single curation agent into sub-agents. Before designing the architecture, we surveyed the multi-agent LLM literature: 51 papers across coordination patterns, memory architectures, and iterative self-improvement.
-
-\subsection{When does multi-agent help?}
-
-Two recent papers directly address this question --- and reach the same conclusion.
-
-\begin{enumerate}
-    \item \textbf{Google's scaling study}~\cite{li2026singleVsMulti}: single agents match or beat multi-agent on sequential tasks. Multi-agent helps only when subtasks are parallelizable and independently evaluable.
-    \item \textbf{Single-or-multi decision framework}~\cite{singleOrMulti2025}: the advantage of multi-agent systems diminishes with stronger base LLMs. For frontier models, a well-prompted single agent often suffices.
-\end{enumerate}
-
-\noindent \textbf{Implication for our project:} the curation pipeline has natural phase boundaries (profile $\to$ filter $\to$ mix) that are sequential, not parallel. Splitting into sub-agents is justified only if each phase benefits from a specialized context window --- not for parallelism.
-
-\subsection{Coordination patterns}
-
-Three dominant patterns in the literature:
+With all fixes applied, the agent runs the full loop on the setup described in Section~\ref{sec:setup}.
 
 \begin{table}[H]
 \centering
 \small
-\caption{Multi-agent coordination patterns. Debate and layered aggregation show consistent gains on reasoning tasks; role specialization helps most in software engineering.}
-\label{tab:coordination}
-\begin{tabular}{llll}
+\caption{Benchmark scores across agent episodes. Baseline is LLaVA-1.5-7B zero-shot. Ep~1 matches/beats baseline on MMStar and OCRBench with only 10k curated samples. Ep~3--4 show failure modes from aggressive filtering and budget reduction. Ep~5 eval pending at time of writing.}
+\label{tab:episode-results}
+\begin{tabular}{lccccccc}
 \toprule
-\textbf{Pattern} & \textbf{Key papers} & \textbf{Mechanism} & \textbf{Best for} \\
+& \textbf{Samples} & \textbf{MMStar} & \textbf{OCRBench} & \textbf{Hallusion} & \textbf{MMMU} & \textbf{Reward} & \textbf{Note} \\
 \midrule
-Debate / discussion & Du+ '23, Liang+ '23 & Agents argue, converge & Factuality, reasoning \\
-Role specialization & MetaGPT, ChatDev & Fixed roles (PM, dev, QA) & Software, structured tasks \\
-Layered aggregation & MoA, LLM-Blender & Proposers $\to$ aggregator & Quality from weak models \\
+Baseline & --- & 30.3 & 317 & 27.6 & 35.3 & --- & zero-shot \\
+\midrule
+Ep~1 & 9,998 & \textbf{30.33} & \textbf{333} & 46.9 & 3.56 & 0.293 & uniform mix (T=5) \\
+Ep~2 & 9,997 & --- & --- & --- & --- & 0.0 & eval crashed \\
+Ep~3 & 9,999 & 1.07 & 320 & 45.2 & 3.22 & 0.204 & quality\_filter too aggressive \\
+Ep~4 & 4,999 & 0.93 & 333 & 47.5 & --- & 0.0 & halved budget, eval crashed \\
+Ep~5 & 9,998 & \textit{pending} & \textit{pending} & \textit{pending} & 4.44 & \textit{pending} & with Liger kernel (1.7$\times$ faster) \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\noindent Debate is overkill when a single evaluator can verify output (our case --- benchmark scores are ground truth). Role specialization fits better: profiler, filterer, mixer each have distinct tool access and context needs.
+\paragraph{Ep~1: baseline-competitive on first attempt.}
+The agent's first curation run matched baseline MMStar (30.33 vs 30.3) and beat OCRBench (333 vs 317) using a uniform temperature-sampled mix across 4 datasets (captcha auto-excluded by \texttt{vlm\_filter}). This demonstrates the pipeline produces viable training data.
 
-\subsection{Memory for iterative improvement}
+\paragraph{Ep~3: aggressive filtering destroys MMStar.}
+The agent applied \texttt{quality\_filter} with \texttt{min\_answer\_words=2}, silently removing valid single-word VQA answers. After rollback and retry, MMStar collapsed to 1.07\% while OCRBench held (320). This failure motivated the default parameter changes described in Section~1.3.
 
-The agent must improve curation strategy across episodes using eval feedback. The CoALA framework~\cite{sumers2023coala} taxonomizes agent memory into four types:
+\paragraph{Ep~4: budget sensitivity.}
+After a finetune timeout (1808s on 10k samples), the agent halved to 5k. MMStar collapsed further to 0.93\% while HallusionBench was unaffected (47.5 aAcc). MMStar requires diverse general knowledge that needs the full 10k budget.
 
-\begin{enumerate}
-    \item \textbf{Working memory}: current episode context (tool calls, intermediate results). Already implemented as the LLM context window.
-    \item \textbf{Episodic memory}: past episode traces. ExpeL~\cite{zhao2023expel} extracts success/failure rules from trajectories. Reflexion~\cite{shinn2023reflexion} stores natural-language self-critiques.
-    \item \textbf{Semantic memory}: domain knowledge (dataset statistics, benchmark requirements). Currently implicit in the system prompt.
-    \item \textbf{Procedural memory}: reusable action sequences. Voyager~\cite{wang2023voyager} builds a skill library; Agent Workflow Memory~\cite{wang2024agentworkflow} extracts reusable workflows from trajectories.
-\end{enumerate}
-
-\noindent \textbf{What we need:} episodic memory storing per-episode summaries (curation decisions $\to$ benchmark deltas) and procedural memory for successful curation recipes. Working memory is already the bottleneck --- sub-agents reduce it.
-
-\subsection{Self-improvement mechanisms}
-
-\begin{table}[H]
-\centering
-\small
-\caption{Self-improvement approaches ranked by relevance to our iterative curation loop. RISE and GodelAgent are closest: both use evaluation feedback to recursively refine strategies.}
-\label{tab:self-improve}
-\begin{tabular}{lll}
-\toprule
-\textbf{Paper} & \textbf{Mechanism} & \textbf{Relevance} \\
-\midrule
-Self-Refine (Madaan+ '23) & Generate $\to$ critique $\to$ refine loop & High: single-agent iterative improvement \\
-Reflexion (Shinn+ '23) & Verbal self-reflection stored in memory & High: episodic memory for learning \\
-ExpeL (Zhao+ '23) & Extract rules from success/failure traces & High: distills experience into reusable knowledge \\
-RISE (Qu+ '24) & Recursive introspection from eval signal & High: uses downstream eval to improve \\
-GodelAgent (Yin+ '24) & Self-evolving agent that rewrites own logic & Medium: full self-modification \\
-ADAS (Hu+ '24) & Meta-agent designs agent architectures & Medium: automated architecture search \\
-Symbolic Learning (Zhou+ '24) & Optimizes prompts as ``weights'' & Medium: prompt-level self-improvement \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{Gap: no prior work on multi-agent VLM data curation}
-
-No published work combines multi-agent coordination with iterative fine-tuning data curation for VLMs. Closest work:
+\paragraph{Operational observations.}
 \begin{itemize}
-    \item Bai+ '24 uses multi-agent \textit{data selection} but for pre-training, not fine-tuning, and without iterative episodes.
-    \item ADAS (Hu+ '24) automates agent \textit{architecture} design but does not curate training data.
-    \item The self-improvement papers (Reflexion, ExpeL, RISE) improve agent \textit{behavior} across episodes but do not modify training data.
+    \item Data ops (profile, filter, mix, save) complete in $<$1 min total. Training and eval dominate wall time ($\sim$15 min/episode).
+    \item Captcha dataset always dropped: all images fail \texttt{vlm\_filter} structural checks.
+    \item Zombie subprocess management is a critical operational concern: finetune and eval launch as decoupled subprocesses that survive agent crashes. Stale GPU processes caused 3 of 5 episode failures.
 \end{itemize}
 
-\noindent Our contribution sits at the intersection: an agent that iteratively improves \textit{data curation decisions} using downstream \textit{VLM evaluation feedback}, with memory to carry lessons across episodes.
-
 
 %% ============================================================
-%% KEY FINDINGS + TASKS
+%% NEXT STEPS
 %% ============================================================
-
-\keyfindings{
-    \item \textbf{Local Qwen3.5-27B judge is viable.} Within 1 point of GPT-4o on all 6 benchmarks. Eliminates OpenAI dependency.
-    \item \textbf{Training batch=2 is the max stable config for LLaVA on H200.} Batch=16 OOMs at cross-entropy; batch=2 with grad\_accum=2 gives effective batch 8.
-    \item \textbf{Tool docstring format matters.} ``What + when'' only, per smelly tool descriptions paper. Removed verbose descriptions.
-    \item \textbf{Data ops are not the bottleneck.} Sub-minute total. Train + eval dominate ($\sim$15 min/episode).
-    \item \textbf{Multi-agent helps only when subtasks are parallelizable.} Our pipeline is sequential --- sub-agents are justified for context isolation, not parallelism.
-    \item \textbf{No prior work combines multi-agent curation with iterative VLM fine-tuning.} Closest papers address pieces (multi-agent data selection, self-improving agents) but not the intersection.
-}
 
 \meetingtasks{
-    \item \todo{Validate full episode completes (train + eval) with batch=2 fix}
-    \item \todo{Test multi-episode runs: does the agent improve curation strategy from eval feedback?}
-    \item \todo{Design sub-agent architecture: role-specialized agents (profiler, filterer, mixer) with phase-specific context windows}
+    \item \todo{Complete Ep~5 eval and update results table}
+    \item \todo{Run 5+ episode stress test: does the agent improve curation strategy from eval feedback across episodes?}
     \item \todo{Implement episodic memory: store per-episode summaries (curation decisions $\to$ benchmark deltas) for cross-episode learning}
+    \item \todo{Add CLIP score filter and SemDeDup to tool suite}
     \item \todo{Measure token cost per episode and identify context window pressure points}
-    \item \todo{Read tier-1 papers (13 papers) and extract design decisions applicable to our architecture}
+    \item \todo{Read multi-agent literature (51 papers collected) and extract design decisions for sub-agent architecture}
 }
