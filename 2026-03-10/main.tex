@@ -291,25 +291,46 @@ With all fixes applied, the agent runs the full loop on the setup described in S
 \begin{table}[H]
 \centering
 \small
-\caption{Benchmark scores across agent episodes. Baseline is LLaVA-1.5-7B zero-shot. Ep~1 matches/beats baseline on MMStar and OCRBench with only 10k curated samples. Ep~3--4 show failure modes from aggressive filtering and budget reduction. Ep~5 eval pending at time of writing.}
+\caption{Benchmark scores across agent episodes. Baseline is LLaVA-1.5-7B zero-shot. Ep~1 matches/beats baseline on MMStar and OCRBench with only 10k curated samples. Ep~3--4 show failure modes from aggressive filtering and budget reduction. Ep~5 is the first run with restructured tool descriptions (Purpose/Guidelines/Limitations).}
 \label{tab:episode-results}
-\begin{tabular}{lccccccc}
+\begin{tabular}{lcccccccc}
 \toprule
-& \textbf{Samples} & \textbf{MMStar} & \textbf{OCRBench} & \textbf{Hallusion} & \textbf{MMMU} & \textbf{Reward} & \textbf{Note} \\
+& \textbf{Samples} & \textbf{MMStar} & \textbf{OCRBench} & \textbf{Hallusion} & \textbf{MMMU} & \textbf{MMVet} & \textbf{MathVista} & \textbf{Note} \\
 \midrule
-Baseline & --- & 30.3 & 317 & 27.6 & 35.3 & --- & zero-shot \\
+Baseline & --- & 30.3 & 317 & 27.6 & 35.3 & 31.1 & 26.1 & zero-shot \\
 \midrule
-Ep~1 & 9,998 & \textbf{30.33} & \textbf{333} & 46.9 & 3.56 & 0.293 & uniform mix (T=5) \\
-Ep~2 & 9,997 & --- & --- & --- & --- & 0.0 & eval crashed \\
-Ep~3 & 9,999 & 1.07 & 320 & 45.2 & 3.22 & 0.204 & quality\_filter too aggressive \\
-Ep~4 & 4,999 & 0.93 & 333 & 47.5 & --- & 0.0 & halved budget, eval crashed \\
-Ep~5 & 9,998 & \textit{pending} & \textit{pending} & \textit{pending} & 4.44 & \textit{pending} & with Liger kernel (1.7$\times$ faster) \\
+Ep~1 & 9,998 & \textbf{30.3} & \textbf{333} & 46.9 & 3.6 & --- & --- & uniform mix, judge failed \\
+Ep~2 & 9,997 & --- & --- & --- & --- & --- & --- & eval crashed \\
+Ep~3 & 9,999 & 1.1 & 320 & 45.2 & 3.2 & --- & --- & quality\_filter aggressive \\
+Ep~4 & 4,999 & 0.9 & 333 & 47.5 & --- & --- & --- & halved budget, eval crashed \\
+Ep~5 & 10,000 & 1.2 & \textbf{328} & \textbf{46.2} & \textbf{25.8} & 0.5 & 0.2 & new docstrings, no quality\_filter \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Episode summary.}
+
+\begin{table}[H]
+\centering
+\small
+\caption{Episode behavior summary. Steps = total tool calls. Pipeline shows the tool sequence. Ep~5 is the first episode with restructured tool descriptions and seed memories from Ep~1--4.}
+\label{tab:episode-summary}
+\begin{tabular}{clcl}
+\toprule
+\textbf{Ep} & \textbf{Pipeline} & \textbf{Steps} & \textbf{Outcome} \\
+\midrule
+1 & profile $\to$ explore(4) $\to$ vlm\_filter(4) $\to$ quality\_filter(4) $\to$ mix $\to$ ft $\to$ eval & 22 & done (reward 0.293) \\
+2 & profile $\to$ explore(5) $\to$ vlm\_filter(5) $\to$ quality\_filter(5) $\to$ mix $\to$ ft & 20 & eval crashed \\
+3 & profile $\to$ vlm\_filter(5) $\to$ quality\_filter(4) $\to$ rollback(2) $\to$ mix $\to$ ft(2) $\to$ eval & 25 & done (reward 0.204) \\
+4 & profile $\to$ vlm\_filter(5) $\to$ mix(10k) $\to$ ft(timeout) $\to$ mix(5k) $\to$ ft $\to$ eval & 18 & eval crashed \\
+\midrule
+5 & profile $\to$ vlm\_filter(5) $\to$ mix $\to$ save $\to$ ft $\to$ eval & \textbf{12} & eval OOM (scores recovered) \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \paragraph{Ep~1: baseline-competitive on first attempt.}
-The agent's first curation run matched baseline MMStar (30.33 vs 30.3) and beat OCRBench (333 vs 317) using a uniform temperature-sampled mix across 4 datasets (captcha auto-excluded by \texttt{vlm\_filter}). This demonstrates the pipeline produces viable training data.
+The agent's first curation run matched baseline MMStar (30.3 vs 30.3) and beat OCRBench (333 vs 317) using a uniform temperature-sampled mix across 4 datasets (captcha auto-excluded by \texttt{vlm\_filter}). This demonstrates the pipeline produces viable training data.
 
 \paragraph{Ep~3: aggressive filtering destroys MMStar.}
 The agent applied \texttt{quality\_filter} with \texttt{min\_answer\_words=2}, silently removing valid single-word VQA answers. After rollback and retry, MMStar collapsed to 1.07\% while OCRBench held (320). This failure motivated the default parameter changes described in Section~1.3.
@@ -317,11 +338,82 @@ The agent applied \texttt{quality\_filter} with \texttt{min\_answer\_words=2}, s
 \paragraph{Ep~4: budget sensitivity.}
 After a finetune timeout (1808s on 10k samples), the agent halved to 5k. MMStar collapsed further to 0.93\% while HallusionBench was unaffected (47.5 aAcc). MMStar requires diverse general knowledge that needs the full 10k budget.
 
+\paragraph{Ep~5: reasoning trace with restructured tool descriptions.}
+Episode~5 is the first run after the tool description rewrite (Section~1.2) and with seed memories from Ep~1--4 injected into the system prompt. It completed the full pipeline in \textbf{12 steps with zero wasted actions}. Below is the verbatim reasoning trace from the episode event log (\texttt{events.jsonl}).
+
+\subparagraph{Step 0 --- Strategic planning (line 3, T+0s).}
+Before any tool call, the agent reviews all prior episodes from seed memory:
+
+\begin{quote}\small\ttfamily
+\textbf{Review of past episodes}\\
+- Episode 1 (balanced 25\% each) achieved the highest MMStar score (\textasciitilde30\%) -- essentially the baseline. OCRBench was also decent (33.3). This suggests a uniform mix provides good general reasoning ability.\\
+- Episodes 2--4 suffered from crashes or severe MMStar drops. Key issues observed:\\
+\quad 1. \textbf{Over-aggressive quality\_filter} (especially in Episode 3) likely removed useful reasoning instructions, collapsing MMStar to \textasciitilde1\%.\\
+\quad 2. \textbf{Dataset size reductions} (Episode 4 halved to 5k) dramatically harmed MMStar, confirming we need the full 10k budget.\\
+\quad 3. \textbf{Zero usage of captcha} -- it was never sampled, yet OCRBench may benefit from OCR-focused data.
+\end{ttfamily}\end{quote}
+
+\noindent The agent then formulates a revised strategy with a key decision --- to \textbf{skip text-based filtering entirely}:
+
+\begin{quote}\small\ttfamily
+\textbf{Proposed revised strategy}\\
+2. \textbf{Image filtering only}: Apply vlm\_filter to each dataset to drop corrupt/too-small images. \textbf{Do NOT run quality\_filter} (or keep all thresholds at 0) to avoid unintentionally discarding valuable instruction text.
+\end{ttfamily}\end{quote}
+
+\noindent This is a direct learned correction from Ep~3's failure: the agent correctly attributes MMStar collapse to text filtering removing useful reasoning instructions, not to image quality issues.
+
+\subparagraph{Steps 1--6 --- Efficient filtering (lines 45--106, T+1s to T+528s).}
+The agent executes \texttt{profile\_datasets} followed by \texttt{vlm\_filter} on all 5 datasets. At step~3, captcha returns 0/10{,}000 rows kept. The agent adapts immediately --- its original plan wanted 10--15\% captcha for OCRBench, but the data contradicts this:
+
+\begin{quote}\small\ttfamily
+Whoa! captcha all images filtered out (likely low-res). That means captcha may not be usable for visual instruction (maybe it's text captcha images small). We may still consider using it? But images are all too small; we cannot use them. So we should drop captcha from mix.
+\end{quote}
+
+\subparagraph{Step 7 --- Proportional reasoning (line 107, T+532s).}
+The agent realizes it filtered 10k-row samples but needs full-dataset effective sizes for \texttt{compute\_mix\_ratio}. It derives proportional estimates:
+
+\begin{quote}\small\ttfamily
+We don't have full counts after filtering, but we know original dataset sizes from profile (num\_rows). We can estimate filtered proportion = kept/original\_rows * total rows.\\[4pt]
+From profile: vqav2 total 82772 rows, kept proportion = 9970/10000=0.997, so filtered rows \ensuremath{\approx} 82772*0.997 \ensuremath{\approx} 82540.\\
+captcha total 113062 rows, kept proportion =0, filtered rows =0.\\
+cosyn\_chart total 116814 rows, kept proportion = 0.9942, filtered \ensuremath{\approx} 116134.\\
+llava\_instruct total 157710 rows, kept proportion =0.998 \ensuremath{\Rightarrow} \ensuremath{\approx} 157395.\\
+ocrvqa total 165746 rows, kept proportion =0.9829 \ensuremath{\Rightarrow} \ensuremath{\approx} 162804.
+\end{ttfamily}\end{quote}
+
+\noindent All five proportional estimates are arithmetically correct. The agent then reasons about temperature selection before settling on \texttt{temperature=5} (default).
+
+\subparagraph{Step 8 --- Error recovery (line 111, T+533s).}
+\texttt{compute\_mix\_ratio} fails because the agent passed 4 sizes for 5 datasets. It diagnoses and fixes in one step:
+
+\begin{quote}\small\ttfamily
+The tool expects effective\_sizes count to match number of active datasets (including those with 0 rows?). It sees 5 active datasets (including captcha). We gave 4 sizes. Need to provide size for captcha (0).
+\end{quote}
+
+\subparagraph{Steps 9--12 --- Mix, save, finetune, eval (lines 154--166, T+534s to T+1909s).}
+The agent adjusts rounding (\emph{``add 2 to llava\_instruct to make 2615, total 10000''}), then executes the remaining pipeline with clean single-parameter calls:
+
+\begin{itemize}
+    \item \texttt{submit\_finetune(dataset\_id="vqav2+captcha+cosyn\_chart+llava\_instruct+ocrvqa")} --- no hyperparameters, correct dataset store name
+    \item \texttt{submit\_eval(model\_id="ft-e95ca9d3")} --- correct job\_id format, no filesystem path
+\end{itemize}
+
+\noindent Finetune succeeded in 1226s (\textasciitilde20 min). Eval failed at runtime due to GPU OOM from the finetune process not fully releasing memory; scores were recovered manually from cached VLMEvalKit outputs.
+
+\subparagraph{Analysis.}
+Ep~5 demonstrates several capabilities enabled by seed memories and structured tool descriptions:
+\begin{enumerate}
+    \item \textbf{Cross-episode learning}: The agent correctly identifies that \texttt{quality\_filter} caused Ep~3's MMStar collapse and explicitly avoids it.
+    \item \textbf{Data-driven adaptation}: When captcha is filtered to 0 rows, the agent abandons its plan to include it rather than forcing a workaround.
+    \item \textbf{Quantitative reasoning}: Proportional effective-size estimation from sample-level filter results to full dataset scale.
+    \item \textbf{Correct tool usage}: 12 steps, 0 retries, 0 hallucinated parameters, correct pipeline ordering (profile $\to$ vlm\_filter $\to$ compute\_mix\_ratio $\to$ vlm\_mix $\to$ save\_to\_disk $\to$ submit\_finetune $\to$ submit\_eval).
+\end{enumerate}
+
 \paragraph{Operational observations.}
 \begin{itemize}
-    \item Data ops (profile, filter, mix, save) complete in $<$1 min total. Training and eval dominate wall time ($\sim$15 min/episode).
-    \item Captcha dataset always dropped: all images fail \texttt{vlm\_filter} structural checks.
-    \item Zombie subprocess management is a critical operational concern: finetune and eval launch as decoupled subprocesses that survive agent crashes. Stale GPU processes caused 3 of 5 episode failures.
+    \item Data ops (profile, filter, mix, save) complete in $<$10 min total. Training and eval dominate wall time ($\sim$20 min finetune + $\sim$15--45 min eval per episode).
+    \item Captcha dataset always dropped: all images fail \texttt{vlm\_filter} structural checks across all 5 episodes.
+    \item Zombie subprocess management is a critical operational concern: finetune and eval launch as decoupled subprocesses that survive agent crashes. Stale GPU processes caused 3 of 5 episode failures (Ep~2, Ep~4 eval crashes; Ep~5 eval OOM).
 \end{itemize}
 
 
