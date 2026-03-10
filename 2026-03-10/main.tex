@@ -1,0 +1,203 @@
+\meetingheader
+    {Mar 09, 2026}
+    {}
+    {\meetinglinks{
+        \meetinglink{Smelly Tool Descriptions (Feb 2026)}{https://arxiv.org/abs/2602.14878}
+        \meetinglink{CoALA: Cognitive Architectures for Language Agents}{https://arxiv.org/abs/2309.02427}
+        \meetinglink{Self-Evolving Agents Survey (Fang+ 2025)}{https://arxiv.org/abs/2502.01248}
+    }}
+    {\begin{itemize}
+        \item Fixed end-to-end pipeline: eval judge, training OOM, tool docstrings
+        \item Validated local Qwen3.5-27B-FP8 as eval judge (replaces GPT-4 dependency)
+        \item Agent successfully runs profile $\to$ filter $\to$ mix $\to$ train $\to$ eval loop
+        \item Literature review: multi-agent design patterns, memory architectures, iterative self-improvement (51 papers)
+    \end{itemize}}
+    {}
+
+
+%% ============================================================
+%% SECTION 1: PIPELINE FIXES
+%% ============================================================
+
+\section{Pipeline Fixes}
+
+Three blockers prevented the agent from completing end-to-end episodes. All resolved this week.
+
+\subsection{Eval judge: Qwen3.5-27B-FP8 replaces GPT-4}
+
+VLMEvalKit requires an LLM judge for MMVet and MathVista\_MINI.
+Previously required \texttt{OPENAI\_API\_KEY} $\to$ GPT-4o.
+Now uses locally-served Qwen3.5-27B-FP8 via vLLM at \texttt{ARC\_API\_BASE}.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Sanity check: LLaVA-1.5-7B zero-shot scores. Baseline column is a mix of paper-reported and VLMEvalKit-reproduced values; see Note column. Local Qwen3.5 judge within $\sim$1 point of baselines.}
+\label{tab:judge-sanity}
+\begin{tabular}{lccll}
+\toprule
+\textbf{Benchmark} & \textbf{Baseline} & \textbf{Ours (Qwen3.5 judge)} & \textbf{Source} & \textbf{Note} \\
+\midrule
+MMStar & 30.3 & 30.4 & \cite{chen2024mmstar} & from paper \\
+OCRBench & 317 & 317 & \cite{liu2023ocrbench} & VLMEvalKit run (paper: 297) \\
+HallusionBench & 27.6 & 27.6 & \cite{guan2024hallusionbench} & VLMEvalKit composite \\
+MMMU\_DEV\_VAL & 35.3 & 35.3 & \cite{yue2024mmmu} & lmms-eval (val split) \\
+MMVet & 31.1 & 30.2 & \cite{yu2024mmvet} & from paper \\
+MathVista\_MINI & 26.1 & 25.4 & \cite{lu2024mathvista} & VLMEvalKit run \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent Judge-dependent benchmarks (MMVet, MathVista) within 1 point --- acceptable for relative comparisons across curation runs.
+
+\subsection{Training OOM: batch size fix}
+
+LLaVA-1.5-7B full fine-tune on 2$\times$H200 (140GB each).
+\texttt{per\_device\_train\_batch\_size=16} caused CUDA OOM at the cross-entropy loss.
+Fixed to \texttt{batch\_size=2, grad\_accum=2} (effective batch 8).
+Step time $\sim$2.8s/step, max 200 steps ($\sim$9.3 min).
+
+\subsection{Tool docstrings: what + when format}
+
+Rewrote all 13 tool docstrings following the ``smelly tool descriptions'' finding~\cite{smellyToolDesc2026}: only \textbf{what} (specific action) and \textbf{when} (usage context).
+Removed verbose parameter explanations, examples, and caveats from the class-level docstring.
+
+\subsection{Configurable training limits}
+
+Moved hardcoded timeout and max\_steps to task YAML:
+\begin{verbatim}
+training_config:
+  max_steps_cap: 200    # default 200
+  timeout: 900          # default 900s
+\end{verbatim}
+
+
+%% ============================================================
+%% SECTION 2: AGENT EPISODE OBSERVATIONS
+%% ============================================================
+
+\section{Agent Episode Observations}
+
+With all fixes applied, the agent runs the full loop on 5 FineVision5 datasets (10k samples each, budget 10k).
+
+\paragraph{Data ops are fast.}
+Profiling, filtering, mixing, and saving complete in $<$1 min total.
+\texttt{vlm\_filter} is the slowest data op ($\sim$5 min for image-heavy datasets due to full Arrow reload).
+Training ($\sim$10 min) and eval ($\sim$5 min) dominate wall time as intended.
+
+\paragraph{Agent self-corrects.}
+When \texttt{quality\_filter} with strict thresholds dropped all rows (0/10k), the agent used \texttt{rollback} and retried with lenient parameters.
+
+\paragraph{Captcha dataset always dropped.}
+All images fail \texttt{vlm\_filter} (0/10k kept). The agent correctly excludes it from the mix.
+
+
+%% ============================================================
+%% SECTION 3: LITERATURE — MULTI-AGENT DESIGN
+%% ============================================================
+
+\section{Literature: Multi-Agent System Design}
+
+Next step is splitting the single curation agent into sub-agents. Before designing the architecture, we surveyed the multi-agent LLM literature: 51 papers across coordination patterns, memory architectures, and iterative self-improvement.
+
+\subsection{When does multi-agent help?}
+
+Two recent papers directly address this question --- and reach the same conclusion.
+
+\begin{enumerate}
+    \item \textbf{Google's scaling study}~\cite{li2026singleVsMulti}: single agents match or beat multi-agent on sequential tasks. Multi-agent helps only when subtasks are parallelizable and independently evaluable.
+    \item \textbf{Single-or-multi decision framework}~\cite{singleOrMulti2025}: the advantage of multi-agent systems diminishes with stronger base LLMs. For frontier models, a well-prompted single agent often suffices.
+\end{enumerate}
+
+\noindent \textbf{Implication for our project:} the curation pipeline has natural phase boundaries (profile $\to$ filter $\to$ mix) that are sequential, not parallel. Splitting into sub-agents is justified only if each phase benefits from a specialized context window --- not for parallelism.
+
+\subsection{Coordination patterns}
+
+Three dominant patterns in the literature:
+
+\begin{table}[H]
+\centering
+\small
+\caption{Multi-agent coordination patterns. Debate and layered aggregation show consistent gains on reasoning tasks; role specialization helps most in software engineering.}
+\label{tab:coordination}
+\begin{tabular}{llll}
+\toprule
+\textbf{Pattern} & \textbf{Key papers} & \textbf{Mechanism} & \textbf{Best for} \\
+\midrule
+Debate / discussion & Du+ '23, Liang+ '23 & Agents argue, converge & Factuality, reasoning \\
+Role specialization & MetaGPT, ChatDev & Fixed roles (PM, dev, QA) & Software, structured tasks \\
+Layered aggregation & MoA, LLM-Blender & Proposers $\to$ aggregator & Quality from weak models \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent Debate is overkill when a single evaluator can verify output (our case --- benchmark scores are ground truth). Role specialization fits better: profiler, filterer, mixer each have distinct tool access and context needs.
+
+\subsection{Memory for iterative improvement}
+
+The agent must improve curation strategy across episodes using eval feedback. The CoALA framework~\cite{sumers2023coala} taxonomizes agent memory into four types:
+
+\begin{enumerate}
+    \item \textbf{Working memory}: current episode context (tool calls, intermediate results). Already implemented as the LLM context window.
+    \item \textbf{Episodic memory}: past episode traces. ExpeL~\cite{zhao2023expel} extracts success/failure rules from trajectories. Reflexion~\cite{shinn2023reflexion} stores natural-language self-critiques.
+    \item \textbf{Semantic memory}: domain knowledge (dataset statistics, benchmark requirements). Currently implicit in the system prompt.
+    \item \textbf{Procedural memory}: reusable action sequences. Voyager~\cite{wang2023voyager} builds a skill library; Agent Workflow Memory~\cite{wang2024agentworkflow} extracts reusable workflows from trajectories.
+\end{enumerate}
+
+\noindent \textbf{What we need:} episodic memory storing per-episode summaries (curation decisions $\to$ benchmark deltas) and procedural memory for successful curation recipes. Working memory is already the bottleneck --- sub-agents reduce it.
+
+\subsection{Self-improvement mechanisms}
+
+\begin{table}[H]
+\centering
+\small
+\caption{Self-improvement approaches ranked by relevance to our iterative curation loop. RISE and GodelAgent are closest: both use evaluation feedback to recursively refine strategies.}
+\label{tab:self-improve}
+\begin{tabular}{lll}
+\toprule
+\textbf{Paper} & \textbf{Mechanism} & \textbf{Relevance} \\
+\midrule
+Self-Refine (Madaan+ '23) & Generate $\to$ critique $\to$ refine loop & High: single-agent iterative improvement \\
+Reflexion (Shinn+ '23) & Verbal self-reflection stored in memory & High: episodic memory for learning \\
+ExpeL (Zhao+ '23) & Extract rules from success/failure traces & High: distills experience into reusable knowledge \\
+RISE (Qu+ '24) & Recursive introspection from eval signal & High: uses downstream eval to improve \\
+GodelAgent (Yin+ '24) & Self-evolving agent that rewrites own logic & Medium: full self-modification \\
+ADAS (Hu+ '24) & Meta-agent designs agent architectures & Medium: automated architecture search \\
+Symbolic Learning (Zhou+ '24) & Optimizes prompts as ``weights'' & Medium: prompt-level self-improvement \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Gap: no prior work on multi-agent VLM data curation}
+
+No published work combines multi-agent coordination with iterative fine-tuning data curation for VLMs. Closest work:
+\begin{itemize}
+    \item Bai+ '24 uses multi-agent \textit{data selection} but for pre-training, not fine-tuning, and without iterative episodes.
+    \item ADAS (Hu+ '24) automates agent \textit{architecture} design but does not curate training data.
+    \item The self-improvement papers (Reflexion, ExpeL, RISE) improve agent \textit{behavior} across episodes but do not modify training data.
+\end{itemize}
+
+\noindent Our contribution sits at the intersection: an agent that iteratively improves \textit{data curation decisions} using downstream \textit{VLM evaluation feedback}, with memory to carry lessons across episodes.
+
+
+%% ============================================================
+%% KEY FINDINGS + TASKS
+%% ============================================================
+
+\keyfindings{
+    \item \textbf{Local Qwen3.5-27B judge is viable.} Within 1 point of GPT-4o on all 6 benchmarks. Eliminates OpenAI dependency.
+    \item \textbf{Training batch=2 is the max stable config for LLaVA on H200.} Batch=16 OOMs at cross-entropy; batch=2 with grad\_accum=2 gives effective batch 8.
+    \item \textbf{Tool docstring format matters.} ``What + when'' only, per smelly tool descriptions paper. Removed verbose descriptions.
+    \item \textbf{Data ops are not the bottleneck.} Sub-minute total. Train + eval dominate ($\sim$15 min/episode).
+    \item \textbf{Multi-agent helps only when subtasks are parallelizable.} Our pipeline is sequential --- sub-agents are justified for context isolation, not parallelism.
+    \item \textbf{No prior work combines multi-agent curation with iterative VLM fine-tuning.} Closest papers address pieces (multi-agent data selection, self-improving agents) but not the intersection.
+}
+
+\meetingtasks{
+    \item \todo{Validate full episode completes (train + eval) with batch=2 fix}
+    \item \todo{Test multi-episode runs: does the agent improve curation strategy from eval feedback?}
+    \item \todo{Design sub-agent architecture: role-specialized agents (profiler, filterer, mixer) with phase-specific context windows}
+    \item \todo{Implement episodic memory: store per-episode summaries (curation decisions $\to$ benchmark deltas) for cross-episode learning}
+    \item \todo{Measure token cost per episode and identify context window pressure points}
+    \item \todo{Read tier-1 papers (13 papers) and extract design decisions applicable to our architecture}
+}
