@@ -228,13 +228,16 @@ Two fixes from the previous setup: replaced DeepSpeed with plain HF Trainer + Li
 \midrule
 Epochs & 1 \\
 Batch size (per device) & 2 \\
-Gradient accumulation & 2 (effective batch 8) \\
+Gradient accumulation & 2 (effective batch 4) \\
 Learning rate & 2e-5 (cosine, warmup 3\%) \\
+Weight decay & 0.0 \\
 Precision & bf16 \\
 Optimizer & AdamW (fused) \\
-Max steps & 200 (cap) \\
-Max sequence length & 2048 tokens \\
-Step time & $\sim$2.8s/step \\
+Gradient checkpointing & enabled \\
+Liger kernel & fused RoPE, RMSNorm, SwiGLU, CE \\
+Max steps & 1{,}250 (cap), timeout 1{,}800s \\
+Max sequence length & 2{,}048 tokens \\
+Step time & $\sim$1.0s/step \\
 \bottomrule
 \end{tabular}
 \end{table}
